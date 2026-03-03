@@ -21,13 +21,13 @@ AI-powered messaging daemon that connects to channels (Telegram by default) and 
 ### Quick Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/textclaw/textclaw/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Martins6/textclaw/main/install.sh | bash
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/textclaw/textclaw.git
+git clone https://github.com/Martins6/textclaw.git
 cd textclaw
 go build -o textclaw ./cmd/daemon
 sudo mv textclaw /usr/local/bin/
