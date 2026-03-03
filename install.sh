@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # TextClaw Installation Script
+# Auto-builds from source if no release is available
 # For Unix systems only (macOS and Linux)
 
 set -e
