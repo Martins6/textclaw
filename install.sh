@@ -64,6 +64,26 @@ get_install_dir() {
     return 1
 }
 
+build_from_source() {
+    if ! command -v go &> /dev/null; then
+        print_error "Go is not installed"
+        print_info "Install Go from: https://golang.org/doc/install"
+        exit 1
+    fi
+    
+    TEMP_DIR=$(mktemp -d)
+    print_info "Cloning repository..."
+    git clone --depth 1 "$REPO_URL" "$TEMP_DIR"
+    
+    cd "$TEMP_DIR"
+    go build -o "$BINARY_NAME" ./cmd/textclaw
+    cd -
+    
+    mv "$TEMP_DIR/$BINARY_NAME" .
+    rm -rf "$TEMP_DIR"
+    print_success "Built $BINARY_NAME"
+}
+
 main() {
     print_info "Installing TextClaw"
     print_info "==================="
@@ -101,30 +121,24 @@ main() {
         BINARY_URL="$REPO_URL/releases/latest/download/textclaw-${OS}-${ARCH}"
         
         if command -v curl &> /dev/null; then
-            curl -fsSL "$BINARY_URL" -o "$BINARY_NAME" || {
-                print_error "Failed to download binary"
-                print_info "You can build from source instead:"
-                print_cmd "  git clone $REPO_URL"
-                print_cmd "  cd textclaw"
-                print_cmd "  go build -o textclaw ./cmd/textclaw"
-                exit 1
-            }
+            if ! curl -fsSL "$BINARY_URL" -o "$BINARY_NAME" 2>/dev/null; then
+                print_info "No pre-built release found, building from source..."
+                build_from_source
+            fi
         elif command -v wget &> /dev/null; then
-            wget -q "$BINARY_URL" -O "$BINARY_NAME" || {
-                print_error "Failed to download binary"
-                print_info "You can build from source instead:"
-                print_cmd "  git clone $REPO_URL"
-                print_cmd "  cd textclaw"
-                print_cmd "  go build -o textclaw ./cmd/textclaw"
-                exit 1
-            }
+            if ! wget -q "$BINARY_URL" -O "$BINARY_NAME" 2>/dev/null; then
+                print_info "No pre-built release found, building from source..."
+                build_from_source
+            fi
         else
             print_error "Need curl or wget to download"
             exit 1
         fi
         
-        chmod +x "$BINARY_NAME"
-        print_success "Downloaded $BINARY_NAME"
+        if [ -f "$BINARY_NAME" ]; then
+            chmod +x "$BINARY_NAME"
+            print_success "Downloaded $BINARY_NAME"
+        fi
     fi
 
     print_info "Installing to $TARGET_DIR..."
