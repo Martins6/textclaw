@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/textclaw/textclaw/internal/container"
-	"github.com/textclaw/textclaw/internal/database"
+	"github.com/Martins6/textclaw/internal/container"
+	"github.com/Martins6/textclaw/internal/database"
 )
 
 type Runner struct {
@@ -180,6 +180,12 @@ func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (strin
 
 func (r *Runner) createAndStartContainer(ctx context.Context, workspaceID, containerName string) (string, error) {
 	workspacePath := r.getWorkspacePath(workspaceID)
+
+	if !r.containerMgr.ImageExists(r.image) {
+		if err := r.containerMgr.PullImage(ctx, r.image); err != nil {
+			return "", fmt.Errorf("failed to pull image: %w", err)
+		}
+	}
 
 	cfg := container.ContainerConfig{
 		Image:        r.image,

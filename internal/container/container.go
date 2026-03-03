@@ -37,6 +37,11 @@ func (m *Manager) PullImage(ctx context.Context, imageName string) error {
 	return nil
 }
 
+func (m *Manager) ImageExists(imageName string) bool {
+	_, err := m.cli.InspectImage(imageName)
+	return err == nil
+}
+
 func (m *Manager) BuildImage(ctx context.Context, imageName, dockerfilePath string) error {
 	dir := filepath.Dir(dockerfilePath)
 
