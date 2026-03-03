@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -79,6 +80,7 @@ func (a *TelegramAdapter) isAllowed(username string) bool {
 	}
 
 	for _, user := range a.allowedUsers {
+		user = strings.TrimPrefix(user, "@")
 		if user == username {
 			return true
 		}
