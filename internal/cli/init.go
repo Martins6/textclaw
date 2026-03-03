@@ -129,10 +129,10 @@ func Init() error {
 	}
 
 	if err := pullAgentImage(); err != nil {
-		fmt.Printf("Warning: Failed to pull agent image: %v\n", err)
+		fmt.Printf("Warning: Failed to build agent image: %v\n", err)
 		fmt.Printf("You can build it manually: cd %s && docker build -t textclaw/agent:latest .\n", textclawDir)
 	} else {
-		fmt.Printf("Agent image pulled successfully\n")
+		fmt.Printf("Agent image built successfully\n")
 	}
 
 	return nil
