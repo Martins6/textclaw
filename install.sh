@@ -38,7 +38,7 @@ esac
 LOCAL_DIR="$HOME/.local/bin"
 GO_BIN="$(go env GOPATH 2>/dev/null)/bin" || "$HOME/go/bin"
 BINARY_NAME="textclaw"
-REPO_URL="https://github.com/textclaw/textclaw"
+REPO_URL="https://github.com/Martins6/textclaw"
 
 get_install_dir() {
     if [ -d "$LOCAL_DIR" ] || mkdir -p "$LOCAL_DIR" 2>/dev/null; then
