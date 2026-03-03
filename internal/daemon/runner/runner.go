@@ -144,22 +144,19 @@ type Info struct {
 func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (string, error) {
 	containerName := fmt.Sprintf("textclaw-%s", workspaceID)
 
-	exists, containerID, err := r.containerMgr.ContainerExists(ctx, containerName)
+	exists, _, err := r.containerMgr.ContainerExists(ctx, containerName)
 	if err != nil {
 		return "", fmt.Errorf("failed to check container: %w", err)
 	}
 
 	if !exists {
-		containerID, err = r.createAndStartContainer(ctx, workspaceID, containerName)
+		_, err = r.createAndStartContainer(ctx, workspaceID, containerName)
 		if err != nil {
 			return "", fmt.Errorf("failed to start container: %w", err)
 		}
 	}
 
-	ip, err := r.containerMgr.GetContainerIP(ctx, containerID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get container IP: %w", err)
-	}
+	ip := "localhost"
 
 	sessionID := r.GetCurrentSession(workspaceID)
 	if sessionID == "" {

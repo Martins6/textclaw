@@ -12,6 +12,9 @@ Phase 4 implements container integration that enables the daemon to spawn Docker
 - Create Unix Socket Client for CLI to send messages back to daemon
 - Handle container networking and volume mounting configuration
 - Implement container readiness checks before sending HTTP requests
+- Fixed: Added port bindings in HostConfig to map container port 8080 to host
+- Fixed: Changed WaitForPort to use HTTP health check against localhost instead of Docker port inspection
+- Fixed: Updated runner to use localhost for connecting to containerized OpenCode server
 
 # File Paths
 
@@ -21,3 +24,4 @@ Phase 4 implements container integration that enables the daemon to spawn Docker
 - pkg/socket/server.go
 - pkg/socket/client.go
 - internal/cli/notify.go
+- templates/Dockerfile

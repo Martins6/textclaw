@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"path/filepath"
 	"time"
@@ -98,6 +99,9 @@ func (m *Manager) CreateContainer(ctx context.Context, cfg ContainerConfig) (str
 
 	hostCfg := docker.HostConfig{
 		Binds: binds,
+		PortBindings: map[docker.Port][]docker.PortBinding{
+			"8080/tcp": {{HostIP: "0.0.0.0", HostPort: "8080"}},
+		},
 	}
 
 	opts := docker.CreateContainerOptions{
@@ -161,17 +165,15 @@ func (m *Manager) GetContainerPort(ctx context.Context, containerID string) (str
 
 func (m *Manager) WaitForPort(ctx context.Context, containerID string, port string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		inspect, err := m.cli.InspectContainer(containerID)
-		if err != nil {
-			return err
-		}
+	client := &http.Client{Timeout: 2 * time.Second}
 
-		if inspect.NetworkSettings != nil {
-			for _, bindings := range inspect.NetworkSettings.Ports {
-				if len(bindings) > 0 && bindings[0].HostPort == port {
-					return nil
-				}
+	for time.Now().Before(deadline) {
+		url := fmt.Sprintf("http://localhost:%s/global/health", port)
+		resp, err := client.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
 			}
 		}
 
