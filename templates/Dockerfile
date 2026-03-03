@@ -6,9 +6,10 @@ ENV HOME=/home/user
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    bash \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -sL https://opencode.ai | sh
+RUN curl -fsSL https://opencode.ai/install | bash
 
 RUN useradd -m -s /bin/bash user && \
     mkdir -p /home/user && \

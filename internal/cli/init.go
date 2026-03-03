@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,8 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/textclaw/textclaw/internal/config"
-	"github.com/textclaw/textclaw/internal/database"
+	"github.com/Martins6/textclaw/internal/config"
+	"github.com/Martins6/textclaw/internal/container"
+	"github.com/Martins6/textclaw/internal/database"
 )
 
 func InitCmd() *cobra.Command {
@@ -55,12 +57,9 @@ func Init() error {
 	}
 
 	for src, dst := range templateFiles {
-		data, err := os.ReadFile(src)
-		if err != nil {
-			return fmt.Errorf("failed to read template %s: %w", src, err)
-		}
-		if err := os.WriteFile(dst, data, 0755); err != nil {
-			return fmt.Errorf("failed to write %s: %w", dst, err)
+		url := githubBaseURL + "/" + src
+		if err := downloadFile(url, dst); err != nil {
+			return fmt.Errorf("failed to download %s: %w", src, err)
 		}
 	}
 
@@ -68,27 +67,21 @@ func Init() error {
 		"opencode.json", "AGENTS.md", "SOUL.md", "TOOLS.md", "USER.md", "HEARTBEATS.md",
 	}
 	for _, file := range opencodeFiles {
-		src := filepath.Join("templates/.opencode", file)
+		src := "templates/.opencode/" + file
 		dst := filepath.Join(textclawDir, ".opencode", file)
-		data, err := os.ReadFile(src)
-		if err != nil {
-			return fmt.Errorf("failed to read template %s: %w", src, err)
-		}
-		if err := os.WriteFile(dst, data, 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", dst, err)
+		url := githubBaseURL + "/" + src
+		if err := downloadFile(url, dst); err != nil {
+			return fmt.Errorf("failed to download %s: %w", src, err)
 		}
 	}
 
 	mainWorkspaceFiles := []string{"AGENTS.md", "SOUL.md", "TOOLS.md", "USER.md"}
 	for _, file := range mainWorkspaceFiles {
-		src := filepath.Join("templates/workspaces/main", file)
+		src := "templates/workspaces/main/" + file
 		dst := filepath.Join(textclawDir, "workspaces", "main", file)
-		data, err := os.ReadFile(src)
-		if err != nil {
-			return fmt.Errorf("failed to read template %s: %w", src, err)
-		}
-		if err := os.WriteFile(dst, data, 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", dst, err)
+		url := githubBaseURL + "/" + src
+		if err := downloadFile(url, dst); err != nil {
+			return fmt.Errorf("failed to download %s: %w", src, err)
 		}
 	}
 
@@ -99,7 +92,7 @@ func Init() error {
 	}
 	defer db.Close()
 
-	if err := database.RunMigrations(db); err != nil {
+	if err := database.InitSchema(db); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -135,13 +128,68 @@ func Init() error {
 		fmt.Printf("Embedding model downloaded successfully\n")
 	}
 
+	if err := pullAgentImage(); err != nil {
+		fmt.Printf("Warning: Failed to pull agent image: %v\n", err)
+		fmt.Printf("You can build it manually: cd %s && docker build -t textclaw/agent:latest .\n", textclawDir)
+	} else {
+		fmt.Printf("Agent image pulled successfully\n")
+	}
+
+	return nil
+}
+
+func pullAgentImage() error {
+	mgr, err := container.NewManager()
+	if err != nil {
+		return fmt.Errorf("failed to create container manager: %w", err)
+	}
+	defer mgr.Close()
+
+	cfg, err := config.Load(filepath.Join(textclawDir, "setup.toml"))
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	image := cfg.Container.Image
+	if image == "" {
+		image = "textclaw/agent:latest"
+	}
+
+	dockerfilePath := filepath.Join(textclawDir, "Dockerfile")
+
+	fmt.Printf("Building agent image %s (this may take a while on first run)...\n", image)
+	if err := mgr.BuildImage(context.Background(), image, dockerfilePath); err != nil {
+		return fmt.Errorf("failed to build image: %w", err)
+	}
 	return nil
 }
 
 const (
 	embeddingModelURL  = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf?download=true"
 	embeddingModelFile = "nomic-embed-text-v1.5-Q4_K_M.gguf"
+	githubBaseURL      = "https://raw.githubusercontent.com/Martins6/textclaw/main"
 )
+
+func downloadFile(url, dst string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to download %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download %s: HTTP %d", url, resp.StatusCode)
+	}
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", dst, err)
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
 
 func downloadEmbeddingModel() error {
 	modelPath := filepath.Join(textclawDir, "models", embeddingModelFile)
@@ -160,7 +208,7 @@ func downloadEmbeddingModel() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download: HTTP %d", resp.StatusCode)
+		return fmt.Errorf("failed to download: HTTP %d", resp.Status)
 	}
 
 	out, err := os.Create(modelPath)

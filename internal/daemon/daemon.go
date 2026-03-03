@@ -3,21 +3,57 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
-	"github.com/textclaw/textclaw/internal/config"
-	"github.com/textclaw/textclaw/internal/daemon/heartbeat"
-	"github.com/textclaw/textclaw/internal/daemon/listener"
-	"github.com/textclaw/textclaw/internal/daemon/provisioner"
-	"github.com/textclaw/textclaw/internal/daemon/router"
-	"github.com/textclaw/textclaw/internal/daemon/runner"
-	"github.com/textclaw/textclaw/internal/database"
+	"github.com/Martins6/textclaw/internal/config"
+	"github.com/Martins6/textclaw/internal/daemon/heartbeat"
+	"github.com/Martins6/textclaw/internal/daemon/listener"
+	"github.com/Martins6/textclaw/internal/daemon/provisioner"
+	"github.com/Martins6/textclaw/internal/daemon/router"
+	"github.com/Martins6/textclaw/internal/daemon/runner"
+	"github.com/Martins6/textclaw/internal/database"
 )
+
+const (
+	reset  = "\033[0m"
+	red    = "\033[31m"
+	green  = "\033[32m"
+	yellow = "\033[33m"
+	blue   = "\033[34m"
+	cyan   = "\033[36m"
+	gray   = "\033[90m"
+)
+
+func channelLog(prefix, color, msg string) {
+	timestamp := time.Now().Format("15:04:05")
+	fmt.Fprintf(os.Stderr, "%s[%s]%s %s%s%s %s\n", gray, timestamp, reset, color, prefix, reset, msg)
+}
+
+func channelIn(chatID, sender, content string) {
+	preview := content
+	if len(preview) > 80 {
+		preview = preview[:77] + "..."
+	}
+	channelLog("INPUT", green, fmt.Sprintf("[%s] %s: %s", chatID, sender, preview))
+}
+
+func channelOut(chatID, content string) {
+	preview := content
+	if len(preview) > 80 {
+		preview = preview[:77] + "..."
+	}
+	channelLog("OUTPUT", cyan, fmt.Sprintf("[%s] %s", chatID, preview))
+}
+
+func daemonLog(msg string) {
+	timestamp := time.Now().Format("15:04:05")
+	fmt.Fprintf(os.Stderr, "%s[%s]%s %sDAEMON%s %s\n", gray, timestamp, reset, yellow, reset, msg)
+}
 
 type Daemon struct {
 	cfg                *config.Config
@@ -51,7 +87,7 @@ func New(cfgPath string) (*Daemon, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	if err := database.RunMigrations(db); err != nil {
+	if err := database.InitSchema(db); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -60,7 +96,7 @@ func New(cfgPath string) (*Daemon, error) {
 
 	homeDir, _ := os.UserHomeDir()
 	openCodeAuth := filepath.Join(homeDir, ".local", "share", "opencode")
-	runr, err := runner.New(workspaceBase, openCodeAuth, db)
+	runr, err := runner.New(workspaceBase, openCodeAuth, db, runner.WithImage(cfg.Container.Image))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create runner: %w", err)
 	}
@@ -95,19 +131,19 @@ func (d *Daemon) Start(ctx context.Context) error {
 	}
 	d.adapter = adapter
 
-	log.Printf("Starting TextClaw daemon with %s adapter", adapter.Name())
+	daemonLog(fmt.Sprintf("Starting TextClaw daemon with %s adapter", adapter.Name()))
 
 	if err := d.heartbeatScheduler.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start heartbeat scheduler: %w", err)
 	}
 
 	if err := d.loadHeartbeatWorkspaces(); err != nil {
-		log.Printf("Failed to load heartbeat workspaces: %v", err)
+		daemonLog(fmt.Sprintf("Failed to load heartbeat workspaces: %v", err))
 	}
 
 	go func() {
 		if err := adapter.Listen(ctx, d.handleMessage); err != nil && err != context.Canceled {
-			log.Printf("Listener error: %v", err)
+			daemonLog(fmt.Sprintf("Listener error: %v", err))
 		}
 	}()
 
@@ -123,12 +159,12 @@ func (d *Daemon) loadHeartbeatWorkspaces() error {
 	for _, ws := range workspaces {
 		wsCfg, err := config.LoadWorkspaceConfig(filepath.Join(d.workspaceBase, ws.ID))
 		if err != nil {
-			log.Printf("Failed to load config for workspace %s: %v", ws.ID, err)
+			daemonLog(fmt.Sprintf("Failed to load config for workspace %s: %v", ws.ID, err))
 			continue
 		}
 		if wsCfg != nil && wsCfg.Heartbeat != nil && wsCfg.Heartbeat.Enabled {
 			if err := d.heartbeatScheduler.AddWorkspace(ws.ID, wsCfg.Heartbeat.Schedule); err != nil {
-				log.Printf("Failed to add heartbeat for workspace %s: %v", ws.ID, err)
+				daemonLog(fmt.Sprintf("Failed to add heartbeat for workspace %s: %v", ws.ID, err))
 			}
 		}
 	}
@@ -136,25 +172,25 @@ func (d *Daemon) loadHeartbeatWorkspaces() error {
 }
 
 func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error {
-	log.Printf("Received message from %s: %s", msg.Sender, msg.Content)
+	channelIn(msg.ChatID, msg.Sender, msg.Content)
 
 	workspaceID, err := d.router.Lookup(msg.Sender)
 	if err != nil {
 		if err == router.ErrContactNotFound {
-			log.Printf("New contact %s, provisioning workspace", msg.Sender)
+			daemonLog(fmt.Sprintf("New contact %s, provisioning workspace", msg.Sender))
 			workspaceID, err = d.provisioner.EnsureWorkspace(msg.Sender)
 			if err != nil {
-				log.Printf("Failed to provision workspace: %v", err)
+				daemonLog(fmt.Sprintf("Failed to provision workspace: %v", err))
 				return fmt.Errorf("failed to provision workspace: %w", err)
 			}
-			log.Printf("Created workspace %s for contact %s", workspaceID, msg.Sender)
+			daemonLog(fmt.Sprintf("Created workspace %s for contact %s", workspaceID, msg.Sender))
 		} else {
-			log.Printf("Failed to lookup contact: %v", err)
+			daemonLog(fmt.Sprintf("Failed to lookup contact: %v", err))
 			return fmt.Errorf("failed to lookup contact: %w", err)
 		}
 	}
 
-	log.Printf("Routing message to workspace %s", workspaceID)
+	daemonLog(fmt.Sprintf("Routing message to workspace %s", workspaceID))
 
 	if err := database.SaveMessage(d.db, &database.Message{
 		WorkspaceID: workspaceID,
@@ -163,30 +199,30 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 		ContentType: msg.ContentType,
 		Direction:   "incoming",
 	}); err != nil {
-		log.Printf("Failed to save message: %v", err)
+		daemonLog(fmt.Sprintf("Failed to save message: %v", err))
 	}
 
 	if strings.HasPrefix(msg.Content, "/new") || strings.HasPrefix(msg.Content, "/new session") {
-		log.Printf("Creating new session for workspace %s", workspaceID)
+		daemonLog(fmt.Sprintf("Creating new session for workspace %s", workspaceID))
 		sessionID, err := d.runner.NewSession(ctx, workspaceID)
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to create new session: %v", err)
-			log.Printf("%s", errMsg)
+			daemonLog(errMsg)
 			return d.adapter.Send(msg.ChatID, errMsg)
 		}
 		d.runner.SetCurrentSession(workspaceID, sessionID)
 		return d.adapter.Send(msg.ChatID, "New session created! Previous context cleared.")
 	}
 
-	log.Printf("Executing prompt in workspace %s", workspaceID)
+	daemonLog(fmt.Sprintf("Executing prompt in workspace %s", workspaceID))
 	response, err := d.runner.Execute(ctx, workspaceID, msg.Content)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error: %v", err)
-		log.Printf("Failed to execute: %v", err)
+		daemonLog(fmt.Sprintf("Failed to execute: %v", err))
 		return d.adapter.Send(msg.ChatID, errMsg)
 	}
 
-	log.Printf("Response from workspace %s: %s", workspaceID, response)
+	channelOut(msg.ChatID, response)
 
 	if err := database.SaveMessage(d.db, &database.Message{
 		WorkspaceID: workspaceID,
@@ -195,7 +231,7 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 		ContentType: "text",
 		Direction:   "outgoing",
 	}); err != nil {
-		log.Printf("Failed to save response: %v", err)
+		daemonLog(fmt.Sprintf("Failed to save response: %v", err))
 	}
 
 	return d.adapter.Send(msg.ChatID, response)
@@ -204,7 +240,7 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 func (d *Daemon) Stop() error {
 	if d.heartbeatScheduler != nil {
 		if err := d.heartbeatScheduler.Stop(); err != nil {
-			log.Printf("Failed to stop heartbeat scheduler: %v", err)
+			daemonLog(fmt.Sprintf("Failed to stop heartbeat scheduler: %v", err))
 		}
 	}
 	if d.runner != nil {
@@ -238,7 +274,7 @@ func Run() error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigChan
-	log.Println("Shutting down...")
+	daemonLog("Shutting down...")
 
 	cancel()
 

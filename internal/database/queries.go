@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-var migrations = []string{"001_initial", "002_add_session_id", "003_add_context_search"}
-
-const currentMigration = "003_add_context_search"
-
 type Contact struct {
 	ID          string
 	WorkspaceID string
@@ -61,41 +57,38 @@ func InitDB(path string) (*DB, error) {
 	return &DB{DB: db, path: absPath}, nil
 }
 
-func RunMigrations(db *DB) error {
-	_, err := db.Exec("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-	if err != nil {
-		return fmt.Errorf("failed to create migrations table: %w", err)
-	}
+func InitSchema(db *DB) error {
+	schema := `
+	CREATE TABLE IF NOT EXISTS contacts (
+		id TEXT PRIMARY KEY,
+		workspace_id TEXT NOT NULL,
+		role TEXT DEFAULT 'user' CHECK(role IN ('main', 'admin', 'user')),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
 
-	for _, migration := range migrations {
-		var count int
-		err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = ?", migration).Scan(&count)
-		if err != nil {
-			return fmt.Errorf("failed to check migration: %w", err)
-		}
+	CREATE TABLE IF NOT EXISTS workspaces (
+		id TEXT PRIMARY KEY,
+		container_id TEXT,
+		session_id TEXT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
 
-		if count > 0 {
-			continue
-		}
+	CREATE TABLE IF NOT EXISTS messages (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		workspace_id TEXT NOT NULL,
+		contact_id TEXT NOT NULL,
+		content TEXT NOT NULL,
+		content_type TEXT DEFAULT 'text' CHECK(content_type IN ('text', 'non-text')),
+		direction TEXT NOT NULL CHECK(direction IN ('incoming', 'outgoing')),
+		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
 
-		migrationPath := filepath.Join("internal", "database", "migrations", migration+".sql")
-		content, err := os.ReadFile(migrationPath)
-		if err != nil {
-			return fmt.Errorf("failed to read migration file: %w", err)
-		}
-
-		_, err = db.Exec(string(content))
-		if err != nil {
-			return fmt.Errorf("failed to apply migration: %w", err)
-		}
-
-		_, err = db.Exec("INSERT INTO schema_migrations (version) VALUES (?)", migration)
-		if err != nil {
-			return fmt.Errorf("failed to record migration: %w", err)
-		}
-	}
-
-	return nil
+	CREATE INDEX IF NOT EXISTS idx_messages_workspace ON messages(workspace_id);
+	CREATE INDEX IF NOT EXISTS idx_messages_contact ON messages(contact_id);
+	CREATE INDEX IF NOT EXISTS idx_contacts_workspace ON contacts(workspace_id);
+	`
+	_, err := db.Exec(schema)
+	return err
 }
 
 func CreateContact(db *DB, id, workspaceID, role string) error {

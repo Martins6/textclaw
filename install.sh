@@ -92,7 +92,7 @@ main() {
             exit 1
         fi
         
-        go build -o "$BINARY_NAME" ./cmd/daemon
+        go build -o "$BINARY_NAME" ./cmd/textclaw
         print_success "Built $BINARY_NAME"
     else
         print_info "Downloading pre-built binary..."
@@ -106,7 +106,7 @@ main() {
                 print_info "You can build from source instead:"
                 print_cmd "  git clone $REPO_URL"
                 print_cmd "  cd textclaw"
-                print_cmd "  go build -o textclaw ./cmd/daemon"
+                print_cmd "  go build -o textclaw ./cmd/textclaw"
                 exit 1
             }
         elif command -v wget &> /dev/null; then
@@ -115,7 +115,7 @@ main() {
                 print_info "You can build from source instead:"
                 print_cmd "  git clone $REPO_URL"
                 print_cmd "  cd textclaw"
-                print_cmd "  go build -o textclaw ./cmd/daemon"
+                print_cmd "  go build -o textclaw ./cmd/textclaw"
                 exit 1
             }
         else
@@ -128,7 +128,7 @@ main() {
     fi
 
     print_info "Installing to $TARGET_DIR..."
-    cp "$BINARY_NAME" "$TARGET_DIR/"
+    cp -f "$BINARY_NAME" "$TARGET_DIR/"
     chmod +x "$TARGET_DIR/$BINARY_NAME"
     print_success "Installed to $TARGET_DIR/$BINARY_NAME"
 

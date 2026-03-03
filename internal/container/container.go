@@ -1,8 +1,10 @@
 package container
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/fsouza/go-dockerclient"
@@ -31,6 +33,24 @@ func (m *Manager) PullImage(ctx context.Context, imageName string) error {
 	}, docker.AuthConfiguration{})
 	if err != nil {
 		return fmt.Errorf("failed to pull image %s: %w", imageName, err)
+	}
+	return nil
+}
+
+func (m *Manager) BuildImage(ctx context.Context, imageName, dockerfilePath string) error {
+	dockerfileContent, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read Dockerfile: %w", err)
+	}
+
+	opts := docker.BuildImageOptions{
+		Name:         imageName,
+		InputStream:  bytes.NewReader(dockerfileContent),
+		OutputStream: &NopWriter{},
+	}
+	err = m.cli.BuildImage(opts)
+	if err != nil {
+		return fmt.Errorf("failed to build image %s: %w", imageName, err)
 	}
 	return nil
 }
