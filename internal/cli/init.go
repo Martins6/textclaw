@@ -123,7 +123,7 @@ func Init() error {
 	if err := downloadEmbeddingModel(); err != nil {
 		fmt.Printf("Warning: Failed to download embedding model: %v\n", err)
 		fmt.Printf("You can download it manually from: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF\n")
-		fmt.Printf("Place it at: %s\n", filepath.Join(textclawDir, "models", "nomic-embed-text-v1.5-Q8_0.gguf"))
+		fmt.Printf("Place it at: %s\n", filepath.Join(textclawDir, "models", embeddingModelFile))
 	} else {
 		fmt.Printf("Embedding model downloaded successfully\n")
 	}

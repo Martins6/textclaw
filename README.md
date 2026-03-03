@@ -50,7 +50,11 @@ This creates `~/.textclaw/` with:
 ### 2. Configure Telegram
 
 ```bash
+# Set your bot token (required)
 textclaw config set telegram.token "YOUR_BOT_TOKEN"
+
+# Optional: restrict to specific users (leave empty to allow everyone)
+textclaw config set telegram.allowed_users '["user1", "user2"]'
 ```
 
 ### 3. Start the Daemon
