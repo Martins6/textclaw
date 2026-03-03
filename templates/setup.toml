@@ -7,3 +7,10 @@ volumes = [
 
 [workspace]
 base_path = "./workspaces"
+
+# Telegram configuration
+# allowed_users: List of allowed Telegram handles (without @).
+# Leave empty to allow everyone, or specify users like ["user1", "user2"]
+[telegram]
+# token = "YOUR_BOT_TOKEN"  # Set via: textclaw config set telegram.token "YOUR_TOKEN"
+allowed_users = []

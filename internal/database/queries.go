@@ -47,7 +47,7 @@ func InitDB(path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite3", absPath+"?cache=shared&_foreign_keys=1")
+	db, err := sql.Open("sqlite3", absPath+"?_foreign_keys=1")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -62,6 +62,11 @@ func InitDB(path string) (*DB, error) {
 }
 
 func RunMigrations(db *DB) error {
+	_, err := db.Exec("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+	if err != nil {
+		return fmt.Errorf("failed to create migrations table: %w", err)
+	}
+
 	for _, migration := range migrations {
 		var count int
 		err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = ?", migration).Scan(&count)

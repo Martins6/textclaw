@@ -33,6 +33,7 @@ func Init() error {
 
 	dirs := []string{
 		filepath.Join(textclawDir, "textclaw"),
+		filepath.Join(textclawDir, ".opencode"),
 		filepath.Join(textclawDir, "workspaces", "main"),
 		filepath.Join(textclawDir, "database", "migrations"),
 		filepath.Join(textclawDir, "heartbeats"),
@@ -138,8 +139,8 @@ func Init() error {
 }
 
 const (
-	embeddingModelURL  = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5-Q8_0.gguf"
-	embeddingModelFile = "nomic-embed-text-v1.5-Q8_0.gguf"
+	embeddingModelURL  = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf?download=true"
+	embeddingModelFile = "nomic-embed-text-v1.5-Q4_K_M.gguf"
 )
 
 func downloadEmbeddingModel() error {

@@ -25,7 +25,7 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite3", absPath+"?cache=shared&_foreign_keys=1")
+	db, err := sql.Open("sqlite3", absPath+"?_foreign_keys=1")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

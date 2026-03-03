@@ -84,7 +84,7 @@ Message your Telegram bot. On first contact, TextClaw automatically:
 | Key                      | Description                                      |
 | ------------------------ | ------------------------------------------------ |
 | `telegram.token`         | Telegram bot token                               |
-| `telegram.allowed_users` | Comma-separated list of allowed Telegram handles |
+| `telegram.allowed_users` | List of allowed Telegram handles (empty = everyone) |
 | `container.image`        | Docker image for agent containers                |
 | `workspace.base_path`    | Base path for workspaces                         |
 
@@ -105,7 +105,8 @@ base_path = "./workspaces"
 
 [telegram]
 token = "YOUR_BOT_TOKEN"
-allowed_users = ["@user1", "@user2"]
+# allowed_users: Leave empty to allow everyone, or specify handles without @
+allowed_users = []  # Or: ["@user1", "@user2"]
 ```
 
 ## ~/.textclaw/
