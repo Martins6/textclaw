@@ -104,12 +104,12 @@ func Init() error {
 		Container: config.ContainerConfig{
 			Image: "textclaw/agent:latest",
 			Volumes: []string{
-				"./workspaces/{workspace}:/home/{user}:rw",
+				filepath.Join(textclawDir, "workspaces", "{workspace}:/home/{user}:rw"),
 				"~/.local/share/opencode:/home/{user}/.local/share/opencode:ro",
 			},
 		},
 		Workspace: config.WorkspaceConfig{
-			BasePath: "./workspaces",
+			BasePath: filepath.Join(textclawDir, "workspaces"),
 		},
 	}
 
