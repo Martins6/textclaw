@@ -1,6 +1,14 @@
 # Binaries
-textclaw
-textclaw-daemon
+*.exe
+*.dll
+*.so
+*.dylib
+/textclaw
+/textclaw-daemon
+
+# Build output
+/bin/
+/dist/
 
 # Task management
 .sbeads/
