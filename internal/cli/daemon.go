@@ -9,6 +9,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"github.com/Martins6/textclaw/internal/daemon"
 )
 
 func DaemonCmd() *cobra.Command {
@@ -34,6 +36,13 @@ func DaemonCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Check daemon status",
 		RunE:  daemonStatus,
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:    "run",
+		Short:  "Run daemon (internal)",
+		RunE:   daemonRun,
+		Hidden: true,
 	})
 
 	return cmd
@@ -69,7 +78,7 @@ func daemonStart(cmd *cobra.Command, args []string) error {
 		daemonPath = daemonBin
 	}
 
-	proc := exec.Command(daemonPath, "daemon")
+	proc := exec.Command(daemonPath, "daemon", "run")
 	proc.Stdout = os.Stdout
 	proc.Stderr = os.Stderr
 	proc.SysProcAttr = &syscall.SysProcAttr{
@@ -147,4 +156,8 @@ func isProcessRunning(pidStr string) bool {
 	}
 	err = proc.Signal(syscall.Signal(0))
 	return err == nil
+}
+
+func daemonRun(cmd *cobra.Command, args []string) error {
+	return daemon.Run()
 }
