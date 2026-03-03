@@ -77,7 +77,7 @@ build_from_source() {
     git clone "$REPO_URL" "$TEMP_DIR"
     
     cd "$TEMP_DIR"
-    go build -o "$BINARY_NAME" ./cmd/textclaw
+    go build -ldflags -s -o "$BINARY_NAME" ./cmd/textclaw
     cd -
     
     mv "$TEMP_DIR/$BINARY_NAME" .
@@ -85,7 +85,12 @@ build_from_source() {
     print_success "Built $BINARY_NAME"
     
     if command -v codesign &> /dev/null; then
-        codesign --force --sign - "$BINARY_NAME" 2>/dev/null || true
+        codesign --force --sign - --deep "$BINARY_NAME" 2>/dev/null || true
+        if codesign -v "$BINARY_NAME" 2>/dev/null; then
+            print_success "Code signing verified"
+        else
+            print_error "Code signing verification failed (binary may still work)"
+        fi
     fi
 }
 
@@ -117,11 +122,16 @@ main() {
             exit 1
         fi
         
-        go build -o "$BINARY_NAME" ./cmd/textclaw
+        go build -ldflags -s -o "$BINARY_NAME" ./cmd/textclaw
         print_success "Built $BINARY_NAME"
         
         if command -v codesign &> /dev/null; then
-            codesign --force --sign - "$BINARY_NAME" 2>/dev/null || true
+            codesign --force --sign - --deep "$BINARY_NAME" 2>/dev/null || true
+            if codesign -v "$BINARY_NAME" 2>/dev/null; then
+                print_success "Code signing verified"
+            else
+                print_error "Code signing verification failed (binary may still work)"
+            fi
         fi
     else
         print_info "Downloading pre-built binary..."
@@ -151,8 +161,27 @@ main() {
     fi
 
     print_info "Installing to $TARGET_DIR..."
+    rm -f "$TARGET_DIR/$BINARY_NAME"
     cp -f "$BINARY_NAME" "$TARGET_DIR/"
     chmod +x "$TARGET_DIR/$BINARY_NAME"
+    
+    if command -v codesign &> /dev/null; then
+        if codesign -v "$TARGET_DIR/$BINARY_NAME" 2>/dev/null; then
+            print_success "Code signing verified"
+        else
+            print_error "Code signing verification failed - attempting re-sign..."
+            codesign --force --sign - --deep "$TARGET_DIR/$BINARY_NAME" 2>/dev/null || true
+        fi
+    fi
+    
+    print_info "Verifying binary execution..."
+    if "$TARGET_DIR/$BINARY_NAME" --help >/dev/null 2>&1; then
+        print_success "Binary executes correctly"
+    else
+        print_error "Binary verification failed - it may have been killed by macOS"
+        print_info "Try running: codesign --force --sign - --deep $TARGET_DIR/$BINARY_NAME"
+    fi
+    
     print_success "Installed to $TARGET_DIR/$BINARY_NAME"
 
     rm -f "$BINARY_NAME"
