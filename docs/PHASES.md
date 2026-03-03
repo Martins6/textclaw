@@ -26,7 +26,15 @@
 13. Container Lifecycle - Start/stop, volume mounting
 14. Unix Socket - Container → daemon messaging
 
-## Phase 5: Features (Week 5)
+## Phase 5: Features (Week 5) - COMPLETED
 
 15. Heartbeat Feature - Periodic checks
+    - Per-workspace JSON config (.textclaw.json)
+    - Cron-based scheduler using robfig/cron
+    - Agent reads HEARTBEATS.md for instructions
+    - Notifications via textclaw notify CLI
+
 16. Session Management - /new command handling
+    - session_id column in workspaces table
+    - Session persistence across daemon restarts
+    - /new command creates fresh session

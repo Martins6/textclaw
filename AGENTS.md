@@ -7,7 +7,7 @@ TextClaw is an AI-powered messaging daemon that connects to channels (Telegram, 
 ## Core Tech
 
 - **Language**: Go
-- **Database**: SQLite with vector embeddings
+- **Database**: SQLite with vector embeddings (llama.cpp)
 - **Container Runtime**: Docker
 - **AI Agent**: OpenCode (running inside containers)
 - **Communication**: HTTP (daemon ↔ container), Unix socket (container ↔ daemon for notifications)
@@ -17,4 +17,3 @@ TextClaw is an AI-powered messaging daemon that connects to channels (Telegram, 
 Detailed documentation is available in:
 
 - `docs/DRAFT.md` - Full architecture, philosophy, and implementation details
-- `docs/PHASES.md` - Implementation roadmap and phases

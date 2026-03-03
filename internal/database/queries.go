@@ -8,7 +8,9 @@ import (
 	"time"
 )
 
-const migrationVersion = "001_initial"
+var migrations = []string{"001_initial", "002_add_session_id", "003_add_context_search"}
+
+const currentMigration = "003_add_context_search"
 
 type Contact struct {
 	ID          string
@@ -20,6 +22,7 @@ type Contact struct {
 type Workspace struct {
 	ID          string
 	ContainerID *string
+	SessionID   *string
 	CreatedAt   time.Time
 }
 
@@ -59,30 +62,32 @@ func InitDB(path string) (*DB, error) {
 }
 
 func RunMigrations(db *DB) error {
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = ?", migrationVersion).Scan(&count)
-	if err != nil {
-		return fmt.Errorf("failed to check migration: %w", err)
-	}
+	for _, migration := range migrations {
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = ?", migration).Scan(&count)
+		if err != nil {
+			return fmt.Errorf("failed to check migration: %w", err)
+		}
 
-	if count > 0 {
-		return nil
-	}
+		if count > 0 {
+			continue
+		}
 
-	migrationPath := filepath.Join("internal", "database", "migrations", migrationVersion+".sql")
-	content, err := os.ReadFile(migrationPath)
-	if err != nil {
-		return fmt.Errorf("failed to read migration file: %w", err)
-	}
+		migrationPath := filepath.Join("internal", "database", "migrations", migration+".sql")
+		content, err := os.ReadFile(migrationPath)
+		if err != nil {
+			return fmt.Errorf("failed to read migration file: %w", err)
+		}
 
-	_, err = db.Exec(string(content))
-	if err != nil {
-		return fmt.Errorf("failed to apply migration: %w", err)
-	}
+		_, err = db.Exec(string(content))
+		if err != nil {
+			return fmt.Errorf("failed to apply migration: %w", err)
+		}
 
-	_, err = db.Exec("INSERT INTO schema_migrations (version) VALUES (?)", migrationVersion)
-	if err != nil {
-		return fmt.Errorf("failed to record migration: %w", err)
+		_, err = db.Exec("INSERT INTO schema_migrations (version) VALUES (?)", migration)
+		if err != nil {
+			return fmt.Errorf("failed to record migration: %w", err)
+		}
 	}
 
 	return nil
@@ -119,13 +124,33 @@ func CreateWorkspace(db *DB, id string) error {
 func GetWorkspace(db *DB, id string) (*Workspace, error) {
 	var w Workspace
 	err := db.QueryRow(
-		"SELECT id, container_id, created_at FROM workspaces WHERE id = ?",
+		"SELECT id, container_id, session_id, created_at FROM workspaces WHERE id = ?",
 		id,
-	).Scan(&w.ID, &w.ContainerID, &w.CreatedAt)
+	).Scan(&w.ID, &w.ContainerID, &w.SessionID, &w.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return &w, nil
+}
+
+func GetWorkspaceSession(db *DB, workspaceID string) (string, error) {
+	var sessionID sql.NullString
+	err := db.QueryRow(
+		"SELECT session_id FROM workspaces WHERE id = ?",
+		workspaceID,
+	).Scan(&sessionID)
+	if err != nil {
+		return "", err
+	}
+	return sessionID.String, nil
+}
+
+func UpdateWorkspaceSession(db *DB, workspaceID, sessionID string) error {
+	_, err := db.Exec(
+		"UPDATE workspaces SET session_id = ? WHERE id = ?",
+		sessionID, workspaceID,
+	)
+	return err
 }
 
 func SaveMessage(db *DB, msg *Message) error {
@@ -158,4 +183,125 @@ func GetMessages(db *DB, workspaceID string, limit int) ([]Message, error) {
 		messages = append(messages, m)
 	}
 	return messages, rows.Err()
+}
+
+func GetWorkspaceContacts(db *DB, workspaceID string) ([]Contact, error) {
+	rows, err := db.Query(
+		"SELECT id, workspace_id, role, created_at FROM contacts WHERE workspace_id = ?",
+		workspaceID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var contacts []Contact
+	for rows.Next() {
+		var c Contact
+		err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Role, &c.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		contacts = append(contacts, c)
+	}
+	return contacts, rows.Err()
+}
+
+func GetAllWorkspaces(db *DB) ([]Workspace, error) {
+	rows, err := db.Query("SELECT id, container_id, session_id, created_at FROM workspaces")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var workspaces []Workspace
+	for rows.Next() {
+		var w Workspace
+		if err := rows.Scan(&w.ID, &w.ContainerID, &w.SessionID, &w.CreatedAt); err != nil {
+			return nil, err
+		}
+		workspaces = append(workspaces, w)
+	}
+	return workspaces, rows.Err()
+}
+
+type SearchResult struct {
+	MessageID   int64
+	WorkspaceID string
+	Content     string
+	Timestamp   time.Time
+	Similarity  float64
+}
+
+func SaveMessageEmbedding(db *DB, messageID int64, workspaceID string, embedding []float32) error {
+	embeddingJSON := vectorToJSON(embedding)
+	_, err := db.Exec(
+		"INSERT OR REPLACE INTO message_embeddings (message_id, workspace_id, embedding) VALUES (?, ?, ?)",
+		messageID, workspaceID, embeddingJSON,
+	)
+	return err
+}
+
+func vectorToJSON(v []float32) string {
+	result := "["
+	for i, f := range v {
+		if i > 0 {
+			result += ","
+		}
+		result += fmt.Sprintf("%f", f)
+	}
+	result += "]"
+	return result
+}
+
+func SearchBySimilarity(db *DB, workspaceID string, embedding []float32, limit int) ([]SearchResult, error) {
+	embeddingJSON := vectorToJSON(embedding)
+	rows, err := db.Query(`
+		SELECT m.id, m.workspace_id, m.content, m.timestamp, distance
+		FROM message_embeddings
+		WHERE message_embeddings MATCH ? AND workspace_id = ?
+		ORDER BY distance
+		LIMIT ?`,
+		embeddingJSON, workspaceID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		if err := rows.Scan(&r.MessageID, &r.WorkspaceID, &r.Content, &r.Timestamp, &r.Similarity); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func SearchByKeyword(db *DB, workspaceID string, query string, limit int) ([]SearchResult, error) {
+	rows, err := db.Query(`
+		SELECT m.id, m.workspace_id, m.content, m.timestamp, 0 as similarity
+		FROM messages_fts fts
+		JOIN messages m ON m.id = fts.rowid
+		WHERE messages_fts MATCH ? AND fts.workspace_id = ?
+		ORDER BY rank
+		LIMIT ?`,
+		query, workspaceID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		if err := rows.Scan(&r.MessageID, &r.WorkspaceID, &r.Content, &r.Timestamp, &r.Similarity); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
 }

@@ -3,69 +3,116 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"net"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/textclaw/textclaw/pkg/socket"
 )
 
 func NotifyCmd() *cobra.Command {
-	return &cobra.Command{
+	var urgent bool
+	var workspace string
+	var suppress bool
+
+	cmd := &cobra.Command{
 		Use:   "notify [message]",
 		Short: "Send a notification message",
 		Long:  "Send a message to the user via the running daemon",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return notifySend(args[0])
+			return notifySend(args[0], urgent, workspace, suppress)
 		},
 	}
+
+	cmd.Flags().BoolVarP(&urgent, "urgent", "u", false, "Send as urgent message")
+	cmd.Flags().StringVarP(&workspace, "workspace", "w", "", "Workspace ID (overrides config)")
+	cmd.Flags().BoolVarP(&suppress, "suppress", "s", false, "Suppress if message contains 'No updates' (heartbeat mode)")
+
+	return cmd
 }
 
-type NotifyRequest struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
+type WorkspaceConfig struct {
+	Workspace string           `json:"workspace"`
+	Channel   string           `json:"channel"`
+	Target    string           `json:"target"`
+	Heartbeat *HeartbeatConfig `json:"heartbeat,omitempty"`
 }
 
-type NotifyResponse struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
+type HeartbeatConfig struct {
+	Enabled bool   `json:"enabled"`
+	Every   string `json:"every"`
 }
 
-func notifySend(message string) error {
-	conn, err := net.Dial("unix", textclawSocket)
+func loadWorkspaceConfig() (*WorkspaceConfig, error) {
+	homeDir, _ := os.UserHomeDir()
+	configPath := filepath.Join(homeDir, ".textclaw.json")
+
+	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to connect to daemon: %w", err)
-	}
-	defer conn.Close()
-
-	req := NotifyRequest{
-		Type:    "notify",
-		Message: message,
+		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
 
-	reqData, err := json.Marshal(req)
+	var cfg WorkspaceConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	return &cfg, nil
+}
+
+func notifySend(message string, urgent bool, workspace string, suppress bool) error {
+	homeDir, _ := os.UserHomeDir()
+
+	if workspace == "" {
+		cfg, err := loadWorkspaceConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load workspace config: %w", err)
+		}
+		workspace = cfg.Workspace
+	}
+
+	workspacePath := filepath.Join(homeDir, ".textclaw", "workspaces", workspace)
+	wsConfig, err := loadWorkspaceConfigFile(workspacePath)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
+		return fmt.Errorf("failed to load workspace config: %w", err)
 	}
 
-	if _, err := conn.Write(reqData); err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+	if wsConfig == nil {
+		return fmt.Errorf("workspace %s not found", workspace)
 	}
 
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+	if suppress && message == "No updates" {
+		return nil
 	}
 
-	var resp NotifyResponse
-	if err := json.Unmarshal(buf[:n], &resp); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
-	}
+	socketPath := filepath.Join(homeDir, ".textclaw", "textclaw.sock")
 
-	if !resp.Success {
-		return fmt.Errorf("daemon error: %s", resp.Error)
+	client := socket.NewClient(socketPath)
+
+	if err := client.SendNotify(workspace, message, wsConfig.Target, urgent); err != nil {
+		return fmt.Errorf("failed to send notification: %w", err)
 	}
 
 	fmt.Println("Message sent")
 	return nil
+}
+
+func loadWorkspaceConfigFile(workspacePath string) (*WorkspaceConfig, error) {
+	configPath := filepath.Join(workspacePath, ".textclaw.json")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read config: %w", err)
+	}
+
+	var cfg WorkspaceConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	return &cfg, nil
 }

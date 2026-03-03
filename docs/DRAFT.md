@@ -458,7 +458,142 @@ internal/
 
 1. **Daemon → Container**: HTTP REST to `localhost:PORT/session/:id/message`
 2. **Container → Daemon**: Unix socket (`/var/run/textclaw/textclaw.sock`)
-3. **CLI → Daemon**: Same Unix socket for `notify`, `session` commands
+3. **CLI → Daemon**: Same Unix socket for `notify`, `session`, `context` commands
+
+## Context Search (Historical Memory)
+
+Each workspace container needs to search conversation history for context - finding previous messages that are semantically similar, keyword matches, or recent conversations. This is achieved through the existing Unix socket infrastructure.
+
+### Why Not Direct SQLite Access?
+
+- Mounting SQLite directly to containers would bypass workspace isolation
+- A container could query other workspace's data
+- Socket-based approach enforces workspace_id filtering at the daemon level
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Container (workspace: team-a)                               │
+│                                                             │
+│   textclaw context similar "what did I say about python"   │
+│          │                                                  │
+│          ▼                                                  │
+│   CLI reads ~/.textclaw.json → gets workspace_id: team-a  │
+│          │                                                  │
+│          ▼                                                  │
+│   Socket message: "CONTEXT_SEARCH|semantic|what did I..."   │
+│          │                                                  │
+│          ▼ (Unix socket /var/run/textclaw/textclaw.sock)  │
+└────────────┼────────────────────────────────────────────────┘
+             │
+┌────────────▼────────────────────────────────────────────────┐
+│ Daemon                                                     │
+│   1. Parse socket message                                  │
+│   2. Extract workspace_id from request                     │
+│   3. If semantic: generate embedding for query            │
+│   4. Query SQLite (with workspace_id filter)              │
+│   5. Return results                                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Socket Message Format
+
+```
+CONTEXT_SEARCH|<search_type>|<query>
+
+Where:
+- search_type: semantic, keyword, recent
+- query: the actual search query
+```
+
+**Examples:**
+
+```
+CONTEXT_SEARCH|semantic|what did I say about debugging
+CONTEXT_SEARCH|keyword|python
+CONTEXT_SEARCH|recent|10
+```
+
+### CLI Commands
+
+The container mounts a `textclaw` CLI binary that provides context search:
+
+```bash
+# Semantic search - find messages similar to query
+textclaw context similar "what did I say about debugging errors"
+
+# Keyword search - find messages containing term
+textclaw context search "python"
+
+# Recent messages - get last N messages
+textclaw context recent --limit 10
+
+# Full-text search
+textclaw context find "error handling"
+```
+
+### Database Schema
+
+Using `sqlite-vec` extension for vector similarity search:
+
+```sql
+-- Messages table (existing)
+CREATE TABLE messages (
+    id INTEGER PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    contact_id TEXT,
+    content TEXT,
+    content_type TEXT,
+    direction TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Vector embeddings using sqlite-vec
+CREATE VIRTUAL TABLE message_embeddings USING vec0(
+    embedding float[384]  -- dimension depends on embedding model
+);
+
+-- Indexes
+CREATE INDEX idx_messages_workspace ON messages(workspace_id);
+CREATE INDEX idx_embeddings_workspace ON message_embeddings(workspace_id);
+```
+
+### Semantic Search Query (sqlite-vec)
+
+```sql
+SELECT 
+    m.content,
+    m.timestamp,
+    v.distance as similarity
+FROM message_embeddings v
+JOIN messages m ON m.id = v.message_id
+WHERE v.workspace_id = ?
+ORDER BY v.distance
+LIMIT 10;
+```
+
+### Security & Isolation
+
+- **No direct DB access**: Containers cannot mount SQLite read-write
+- **Enforced filtering**: All queries auto-filtered by workspace_id from `~/.textclaw.json`
+- **Read-only**: Only SELECT queries allowed (no INSERT/UPDATE/DELETE via socket)
+- **Main group sudo**: Main workspace can optionally query all workspaces with special flag
+
+### Embedding Generation
+
+- Uses local embedding model (e.g., sentence-transformers via Go binding or subprocess)
+- Generated asynchronously when messages are stored
+- Query embedding generated on-demand during search
+
+### This Complements Sessions
+
+- **Sessions**: Short-term working memory (in container, ephemeral)
+- **Context Search**: Long-term historical memory (in SQLite, persistent)
+
+This gives agents powerful context retrieval: *"Oh, you mentioned wanting to track X yesterday..."*
+
+---
 
 The container needs a way to send messages back to the user. This is solved by mounting the TextClaw CLI and a per-workspace config into each container.
 

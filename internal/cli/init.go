@@ -2,8 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -33,6 +37,7 @@ func Init() error {
 		filepath.Join(textclawDir, "database", "migrations"),
 		filepath.Join(textclawDir, "heartbeats"),
 		filepath.Join(textclawDir, "cronjobs"),
+		filepath.Join(textclawDir, "models"),
 	}
 
 	for _, dir := range dirs {
@@ -120,5 +125,81 @@ func Init() error {
 	}
 
 	fmt.Printf("TextClaw initialized at %s\n", textclawDir)
+
+	if err := downloadEmbeddingModel(); err != nil {
+		fmt.Printf("Warning: Failed to download embedding model: %v\n", err)
+		fmt.Printf("You can download it manually from: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF\n")
+		fmt.Printf("Place it at: %s\n", filepath.Join(textclawDir, "models", "nomic-embed-text-v1.5-Q8_0.gguf"))
+	} else {
+		fmt.Printf("Embedding model downloaded successfully\n")
+	}
+
+	return nil
+}
+
+const (
+	embeddingModelURL  = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5-Q8_0.gguf"
+	embeddingModelFile = "nomic-embed-text-v1.5-Q8_0.gguf"
+)
+
+func downloadEmbeddingModel() error {
+	modelPath := filepath.Join(textclawDir, "models", embeddingModelFile)
+
+	if _, err := os.Stat(modelPath); err == nil {
+		return nil
+	}
+
+	fmt.Printf("Downloading embedding model (~274MB)...\n")
+	fmt.Printf("This may take a few minutes depending on your connection...\n")
+
+	resp, err := http.Get(embeddingModelURL)
+	if err != nil {
+		return fmt.Errorf("failed to start download: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download: HTTP %d", resp.StatusCode)
+	}
+
+	out, err := os.Create(modelPath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		os.Remove(modelPath)
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
+}
+
+func downloadEmbeddingModelFromHF() error {
+	modelPath := filepath.Join(textclawDir, "models", embeddingModelFile)
+
+	if _, err := os.Stat(modelPath); err == nil {
+		return nil
+	}
+
+	cmd := exec.Command("huggingface-cli", "download", "nomic-ai/nomic-embed-text-v1.5-GGUF", embeddingModelFile, "--local-dir", filepath.Join(textclawDir, "models"))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to download with huggingface-cli: %w. Output: %s", err, string(output))
+	}
+
+	expectedPath := filepath.Join(textclawDir, "models", embeddingModelFile)
+	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		files, _ := os.ReadDir(filepath.Join(textclawDir, "models"))
+		for _, f := range files {
+			if strings.HasPrefix(f.Name(), "nomic-embed-text") && strings.HasSuffix(f.Name(), ".gguf") {
+				os.Rename(filepath.Join(textclawDir, "models", f.Name()), expectedPath)
+				break
+			}
+		}
+	}
+
 	return nil
 }
