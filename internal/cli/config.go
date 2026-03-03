@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/textclaw/textclaw/internal/config"
+	"github.com/Martins6/textclaw/internal/config"
 )
 
 func ConfigCmd() *cobra.Command {

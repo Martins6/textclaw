@@ -1,4 +1,4 @@
-module github.com/textclaw/textclaw
+module github.com/Martins6/textclaw
 
 go 1.25.2
 

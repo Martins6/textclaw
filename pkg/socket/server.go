@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/textclaw/textclaw/internal/daemon/listener"
-	"github.com/textclaw/textclaw/internal/database"
-	"github.com/textclaw/textclaw/internal/embedding"
+	"github.com/Martins6/textclaw/internal/daemon/listener"
+	"github.com/Martins6/textclaw/internal/database"
+	"github.com/Martins6/textclaw/internal/embedding"
 )
 
 type Server struct {

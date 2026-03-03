@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Martins6/textclaw/pkg/socket"
 	"github.com/spf13/cobra"
-	"github.com/textclaw/textclaw/pkg/socket"
 )
 
 func ContextCmd() *cobra.Command {

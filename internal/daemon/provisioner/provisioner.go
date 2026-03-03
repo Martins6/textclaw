@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/textclaw/textclaw/internal/database"
+	"github.com/Martins6/textclaw/internal/database"
 )
 
 type Provisioner struct {

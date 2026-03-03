@@ -81,12 +81,12 @@ Message your Telegram bot. On first contact, TextClaw automatically:
 
 ### Config Keys
 
-| Key                      | Description                                      |
-| ------------------------ | ------------------------------------------------ |
-| `telegram.token`         | Telegram bot token                               |
+| Key                      | Description                                         |
+| ------------------------ | --------------------------------------------------- |
+| `telegram.token`         | Telegram bot token                                  |
 | `telegram.allowed_users` | List of allowed Telegram handles (empty = everyone) |
-| `container.image`        | Docker image for agent containers                |
-| `workspace.base_path`    | Base path for workspaces                         |
+| `container.image`        | Docker image for agent containers                   |
+| `workspace.base_path`    | Base path for workspaces                            |
 
 ## Configuration
 

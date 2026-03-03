@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/textclaw/textclaw/internal/daemon"
+	"github.com/Martins6/textclaw/internal/daemon"
 )
 
 func main() {

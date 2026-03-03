@@ -3,7 +3,7 @@ package router
 import (
 	"database/sql"
 
-	"github.com/textclaw/textclaw/internal/database"
+	"github.com/Martins6/textclaw/internal/database"
 )
 
 type Router struct {

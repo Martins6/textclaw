@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/textclaw/textclaw/internal/database"
+	"github.com/Martins6/textclaw/internal/database"
 )
 
 type Client struct {

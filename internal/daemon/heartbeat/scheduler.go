@@ -5,10 +5,10 @@ import (
 	"log"
 	"sync"
 
+	"github.com/Martins6/textclaw/internal/config"
+	"github.com/Martins6/textclaw/internal/daemon/runner"
+	"github.com/Martins6/textclaw/internal/database"
 	"github.com/robfig/cron/v3"
-	"github.com/textclaw/textclaw/internal/config"
-	"github.com/textclaw/textclaw/internal/daemon/runner"
-	"github.com/textclaw/textclaw/internal/database"
 )
 
 type Scheduler struct {

@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Martins6/textclaw/pkg/socket"
 	"github.com/spf13/cobra"
-	"github.com/textclaw/textclaw/pkg/socket"
 )
 
 func NotifyCmd() *cobra.Command {
