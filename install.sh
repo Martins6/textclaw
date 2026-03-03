@@ -74,7 +74,7 @@ build_from_source() {
     
     TEMP_DIR=$(mktemp -d)
     print_info "Cloning repository..."
-    git clone --depth 1 "$REPO_URL" "$TEMP_DIR"
+    git clone "$REPO_URL" "$TEMP_DIR"
     
     cd "$TEMP_DIR"
     go build -o "$BINARY_NAME" ./cmd/textclaw
