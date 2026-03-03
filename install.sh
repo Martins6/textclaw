@@ -83,6 +83,10 @@ build_from_source() {
     mv "$TEMP_DIR/$BINARY_NAME" .
     rm -rf "$TEMP_DIR"
     print_success "Built $BINARY_NAME"
+    
+    if command -v codesign &> /dev/null; then
+        codesign --force --sign - "$BINARY_NAME" 2>/dev/null || true
+    fi
 }
 
 main() {
@@ -115,6 +119,10 @@ main() {
         
         go build -o "$BINARY_NAME" ./cmd/textclaw
         print_success "Built $BINARY_NAME"
+        
+        if command -v codesign &> /dev/null; then
+            codesign --force --sign - "$BINARY_NAME" 2>/dev/null || true
+        fi
     else
         print_info "Downloading pre-built binary..."
         
