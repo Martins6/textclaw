@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/fsouza/go-dockerclient"
@@ -16,11 +18,33 @@ type Manager struct {
 }
 
 func NewManager() (*Manager, error) {
-	cli, err := docker.NewClientFromEnv()
+	var cli *docker.Client
+	var err error
+
+	dockerSocket := getDockerSocket()
+	if dockerSocket != "" {
+		cli, err = docker.NewClient(dockerSocket)
+	} else {
+		cli, err = docker.NewClientFromEnv()
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 	return &Manager{cli: cli}, nil
+}
+
+func getDockerSocket() string {
+	if runtime.GOOS == "darwin" {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			socketPath := filepath.Join(homeDir, ".docker", "run", "docker.sock")
+			if _, err := os.Stat(socketPath); err == nil {
+				return "unix://" + socketPath
+			}
+		}
+	}
+	return ""
 }
 
 func (m *Manager) Close() error {
@@ -63,12 +87,14 @@ func (n *NopWriter) Write(p []byte) (int, error) {
 }
 
 type ContainerConfig struct {
-	Image           string
-	Name            string
-	WorkspaceDir    string
-	OpenCodeAuth    string
-	MainWorkspace   bool
-	OtherWorkspaces []string
+	Image             string
+	Name              string
+	WorkspaceDir      string
+	OpenCodeConfigDir string
+	OpenCodeAuthDir   string
+	OpenCodeStateDir  string
+	MainWorkspace     bool
+	OtherWorkspaces   []string
 }
 
 func (m *Manager) CreateContainer(ctx context.Context, cfg ContainerConfig) (string, error) {
@@ -76,8 +102,25 @@ func (m *Manager) CreateContainer(ctx context.Context, cfg ContainerConfig) (str
 		fmt.Sprintf("%s:/workspace:rw", cfg.WorkspaceDir),
 	}
 
-	if cfg.OpenCodeAuth != "" {
-		binds = append(binds, fmt.Sprintf("%s:/home/user/.local/share/opencode:ro", cfg.OpenCodeAuth))
+	if cfg.OpenCodeConfigDir != "" {
+		configDirPath := cfg.OpenCodeConfigDir
+		binds = append(binds, fmt.Sprintf("%s:/home/user/.config/opencode:ro", configDirPath))
+	}
+
+	if cfg.OpenCodeStateDir != "" {
+		statePath := cfg.OpenCodeStateDir
+		if _, err := os.Stat(statePath); os.IsNotExist(err) {
+			if err := os.MkdirAll(statePath, 0755); err == nil {
+				binds = append(binds, fmt.Sprintf("%s:/home/user/.local/state:rw", statePath))
+			}
+		} else {
+			binds = append(binds, fmt.Sprintf("%s:/home/user/.local/state:rw", statePath))
+		}
+	}
+
+	if cfg.OpenCodeAuthDir != "" {
+		authDirPath := cfg.OpenCodeAuthDir
+		binds = append(binds, fmt.Sprintf("%s:/home/user/.local/share/opencode:rw", authDirPath))
 	}
 
 	if cfg.MainWorkspace {
@@ -100,7 +143,7 @@ func (m *Manager) CreateContainer(ctx context.Context, cfg ContainerConfig) (str
 	hostCfg := docker.HostConfig{
 		Binds: binds,
 		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8080/tcp": {{HostIP: "0.0.0.0", HostPort: "8080"}},
+			"8080/tcp": {{HostIP: "0.0.0.0", HostPort: ""}},
 		},
 	}
 
@@ -133,15 +176,15 @@ func (m *Manager) RemoveContainer(ctx context.Context, containerID string, force
 	})
 }
 
-func (m *Manager) ContainerExists(ctx context.Context, name string) (bool, string, error) {
+func (m *Manager) ContainerExists(ctx context.Context, name string) (exists bool, running bool, containerID string, err error) {
 	container, err := m.cli.InspectContainer(name)
 	if err != nil {
 		if _, ok := err.(*docker.NoSuchContainer); ok {
-			return false, "", nil
+			return false, false, "", nil
 		}
-		return false, "", err
+		return false, false, "", err
 	}
-	return true, container.ID, nil
+	return true, container.State.Running, container.ID, nil
 }
 
 func (m *Manager) GetContainerPort(ctx context.Context, containerID string) (string, error) {

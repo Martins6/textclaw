@@ -101,7 +101,7 @@ Edit `~/.textclaw/setup.toml`:
 image = "textclaw/agent:latest"
 volumes = [
     "./workspaces/{workspace}:/home/{user}:rw",
-    "~/.local/share/opencode:/home/{user}/.local/share/opencode:ro",
+    "~/.textclaw/opencode-config:/home/{user}/.config/opencode:ro",
 ]
 
 [workspace]

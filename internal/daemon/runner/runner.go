@@ -16,14 +16,17 @@ import (
 )
 
 type Runner struct {
-	containerMgr    *container.Manager
-	workspaceDir    string
-	openCodeAuth    string
-	image           string
-	openCodePort    string
-	currentSessions map[string]string
-	mu              sync.RWMutex
-	db              *database.DB
+	containerMgr      *container.Manager
+	workspaceDir      string
+	openCodeConfigDir string
+	openCodeAuthDir   string
+	image             string
+	openCodePort      string
+	currentSessions   map[string]string
+	workspacePorts    map[string]string
+	workspaceIPs      map[string]string
+	mu                sync.RWMutex
+	db                *database.DB
 }
 
 type RunnerOption func(*Runner)
@@ -40,20 +43,23 @@ func WithOpenCodePort(port string) RunnerOption {
 	}
 }
 
-func New(workspaceDir, openCodeAuth string, db *database.DB, opts ...RunnerOption) (*Runner, error) {
+func New(workspaceDir, openCodeConfigDir, openCodeAuthDir string, db *database.DB, opts ...RunnerOption) (*Runner, error) {
 	containerMgr, err := container.NewManager()
 	if err != nil {
 		return nil, err
 	}
 
 	r := &Runner{
-		containerMgr:    containerMgr,
-		workspaceDir:    workspaceDir,
-		openCodeAuth:    openCodeAuth,
-		image:           "opencode:latest",
-		openCodePort:    "8080",
-		currentSessions: make(map[string]string),
-		db:              db,
+		containerMgr:      containerMgr,
+		workspaceDir:      workspaceDir,
+		openCodeConfigDir: openCodeConfigDir,
+		openCodeAuthDir:   openCodeAuthDir,
+		image:             "opencode:latest",
+		openCodePort:      "8080",
+		currentSessions:   make(map[string]string),
+		workspacePorts:    make(map[string]string),
+		workspaceIPs:      make(map[string]string),
+		db:                db,
 	}
 
 	for _, opt := range opts {
@@ -105,6 +111,41 @@ func (r *Runner) getAllWorkspaces() ([]database.Workspace, error) {
 	return workspaces, rows.Err()
 }
 
+func (r *Runner) GetAllWorkspaces() ([]database.Workspace, error) {
+	rows, err := r.db.Query("SELECT id, session_id FROM workspaces")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var workspaces []database.Workspace
+	for rows.Next() {
+		var w database.Workspace
+		if err := rows.Scan(&w.ID, &w.SessionID); err != nil {
+			return nil, err
+		}
+		workspaces = append(workspaces, w)
+	}
+	return workspaces, rows.Err()
+}
+
+func (r *Runner) StartAllContainers(ctx context.Context) error {
+	workspaces, err := r.GetAllWorkspaces()
+	if err != nil {
+		return fmt.Errorf("failed to get workspaces: %w", err)
+	}
+
+	for _, ws := range workspaces {
+		if err := r.EnsureContainer(ctx, ws.ID); err != nil {
+			log.Printf("Failed to start container for workspace %s: %v", ws.ID, err)
+			continue
+		}
+		log.Printf("Container started for workspace %s", ws.ID)
+	}
+
+	return nil
+}
+
 func (r *Runner) GetCurrentSession(workspaceID string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -142,24 +183,15 @@ type Info struct {
 }
 
 func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (string, error) {
-	containerName := fmt.Sprintf("textclaw-%s", workspaceID)
-
-	exists, _, err := r.containerMgr.ContainerExists(ctx, containerName)
-	if err != nil {
-		return "", fmt.Errorf("failed to check container: %w", err)
-	}
-
-	if !exists {
-		_, err = r.createAndStartContainer(ctx, workspaceID, containerName)
-		if err != nil {
-			return "", fmt.Errorf("failed to start container: %w", err)
-		}
+	if err := r.EnsureContainer(ctx, workspaceID); err != nil {
+		return "", fmt.Errorf("failed to ensure container: %w", err)
 	}
 
 	ip := "localhost"
 
 	sessionID := r.GetCurrentSession(workspaceID)
 	if sessionID == "" {
+		var err error
 		sessionID, err = r.ensureSession(ctx, ip, workspaceID)
 		if err != nil {
 			return "", fmt.Errorf("failed to ensure session: %w", err)
@@ -167,7 +199,7 @@ func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (strin
 		r.SetCurrentSession(workspaceID, sessionID)
 	}
 
-	response, err := r.sendMessage(ctx, ip, sessionID, prompt)
+	response, err := r.sendMessage(ctx, ip, workspaceID, sessionID, prompt)
 	if err != nil {
 		return "", fmt.Errorf("failed to send message: %w", err)
 	}
@@ -175,46 +207,135 @@ func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (strin
 	return r.formatResponse(response), nil
 }
 
-func (r *Runner) createAndStartContainer(ctx context.Context, workspaceID, containerName string) (string, error) {
+func (r *Runner) EnsureContainer(ctx context.Context, workspaceID string) error {
+	containerName := fmt.Sprintf("textclaw-%s", workspaceID)
+
+	exists, running, containerID, err := r.containerMgr.ContainerExists(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("failed to check container: %w", err)
+	}
+
+	if !exists {
+		_, port, ip, err := r.createAndStartContainer(ctx, workspaceID, containerName)
+		if err != nil {
+			return fmt.Errorf("failed to start container: %w", err)
+		}
+		r.mu.Lock()
+		r.workspacePorts[workspaceID] = port
+		r.workspaceIPs[workspaceID] = ip
+		r.mu.Unlock()
+		return nil
+	}
+
+	if !running {
+		err = r.containerMgr.RemoveContainer(ctx, containerID, true)
+		if err != nil {
+			return fmt.Errorf("failed to remove stopped container: %w", err)
+		}
+		_, port, ip, err := r.createAndStartContainer(ctx, workspaceID, containerName)
+		if err != nil {
+			return fmt.Errorf("failed to recreate container: %w", err)
+		}
+		r.mu.Lock()
+		r.workspacePorts[workspaceID] = port
+		r.workspaceIPs[workspaceID] = ip
+		r.mu.Unlock()
+		return nil
+	}
+
+	port, err := r.containerMgr.GetContainerPort(ctx, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to get container port: %w", err)
+	}
+	ip, err := r.containerMgr.GetContainerIP(ctx, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to get container IP: %w", err)
+	}
+	r.mu.Lock()
+	r.workspacePorts[workspaceID] = port
+	r.workspaceIPs[workspaceID] = ip
+	r.mu.Unlock()
+
+	err = r.containerMgr.WaitForPort(ctx, containerID, r.openCodePort, 120*time.Second)
+	if err != nil {
+		return fmt.Errorf("container running but OpenCode server not ready: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Runner) createAndStartContainer(ctx context.Context, workspaceID, containerName string) (string, string, string, error) {
 	workspacePath := r.getWorkspacePath(workspaceID)
 
 	if !r.containerMgr.ImageExists(r.image) {
 		if err := r.containerMgr.PullImage(ctx, r.image); err != nil {
-			return "", fmt.Errorf("failed to pull image: %w", err)
+			return "", "", "", fmt.Errorf("failed to pull image: %w", err)
 		}
 	}
 
 	cfg := container.ContainerConfig{
-		Image:        r.image,
-		Name:         containerName,
-		WorkspaceDir: workspacePath,
-		OpenCodeAuth: r.openCodeAuth,
+		Image:             r.image,
+		Name:              containerName,
+		WorkspaceDir:      workspacePath,
+		OpenCodeConfigDir: r.openCodeConfigDir,
+		OpenCodeAuthDir:   r.openCodeAuthDir,
+		OpenCodeStateDir:  r.getWorkspaceStatePath(workspaceID),
 	}
 
 	containerID, err := r.containerMgr.CreateContainer(ctx, cfg)
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 
 	err = r.containerMgr.StartContainer(ctx, containerID)
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 
-	err = r.containerMgr.WaitForPort(ctx, containerID, r.openCodePort, 60*time.Second)
+	err = r.containerMgr.WaitForPort(ctx, containerID, r.openCodePort, 120*time.Second)
 	if err != nil {
-		return "", fmt.Errorf("container started but OpenCode server not ready: %w", err)
+		return "", "", "", fmt.Errorf("container started but OpenCode server not ready: %w", err)
 	}
 
-	return containerID, nil
+	port, err := r.containerMgr.GetContainerPort(ctx, containerID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to get container port: %w", err)
+	}
+
+	ip, err := r.containerMgr.GetContainerIP(ctx, containerID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to get container IP: %w", err)
+	}
+
+	return containerID, port, ip, nil
 }
 
 func (r *Runner) getWorkspacePath(workspaceID string) string {
 	return fmt.Sprintf("%s/%s", r.workspaceDir, workspaceID)
 }
 
+func (r *Runner) getWorkspaceStatePath(workspaceID string) string {
+	return fmt.Sprintf("%s/%s/opencode-state", r.workspaceDir, workspaceID)
+}
+
+func (r *Runner) getWorkspacePort(workspaceID string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.workspacePorts[workspaceID]
+}
+
+func (r *Runner) getWorkspaceIP(workspaceID string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.workspaceIPs[workspaceID]
+}
+
 func (r *Runner) ensureSession(ctx context.Context, ip, workspaceID string) (string, error) {
-	url := fmt.Sprintf("http://%s:%s/session", ip, r.openCodePort)
+	port := r.getWorkspacePort(workspaceID)
+	if port == "" {
+		port = r.openCodePort
+	}
+	url := fmt.Sprintf("http://%s:%s/session", ip, port)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -228,7 +349,8 @@ func (r *Runner) ensureSession(ctx context.Context, ip, workspaceID string) (str
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to create session: %s", resp.Status)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to create session: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	var sessionResp struct {
@@ -244,8 +366,12 @@ func (r *Runner) ensureSession(ctx context.Context, ip, workspaceID string) (str
 	return sessionResp.Info.SessionID, nil
 }
 
-func (r *Runner) sendMessage(ctx context.Context, ip, sessionID, prompt string) (*Response, error) {
-	url := fmt.Sprintf("http://%s:%s/session/%s/message", ip, r.openCodePort, sessionID)
+func (r *Runner) sendMessage(ctx context.Context, ip, workspaceID, sessionID, prompt string) (*Response, error) {
+	port := r.getWorkspacePort(workspaceID)
+	if port == "" {
+		port = r.openCodePort
+	}
+	url := fmt.Sprintf("http://%s:%s/session/%s/message", ip, port, sessionID)
 
 	msg := Message{
 		Parts: []Part{
@@ -296,7 +422,7 @@ func (r *Runner) formatResponse(resp *Response) string {
 func (r *Runner) NewSession(ctx context.Context, workspaceID string) (string, error) {
 	containerName := fmt.Sprintf("textclaw-%s", workspaceID)
 
-	exists, containerID, err := r.containerMgr.ContainerExists(ctx, containerName)
+	exists, _, containerID, err := r.containerMgr.ContainerExists(ctx, containerName)
 	if err != nil {
 		return "", fmt.Errorf("failed to check container: %w", err)
 	}

@@ -1,3 +1,10 @@
+2026-03-04-10-49 | Fixed workspace SQLite isolation by using workspace-specific state directories instead of shared ~/.textclaw/opencode-state/
+2026-03-04-10-49 | Fixed 500 internal server error on session creation by implementing dynamic port allocation for each workspace container
+2026-03-04-10-49 | Fixed container port bindings lost issue by removing and recreating stopped containers to ensure correct port bindings
+2026-03-04-10-49 | Fixed health check timeout by reverting WaitForPort to use localhost and increasing timeout from 60s to 120s
+2026-03-04-10-49 | Fixed Docker endpoint connection error on macOS by explicitly specifying Docker socket path for Docker Desktop
+2026-03-04-10-49 | Fixed wait for port timeout by using container's internal IP for health check reliability
+2026-03-04-10-49 | Fixed connection refused error by adding container state check and always waiting for port before creating session
 2026-03-03-18-15 | Fixed Docker volume path error by using absolute paths instead of relative paths in config initialization
 2026-03-03-18-50 | Fixed container startup timeout by adding port bindings and HTTP health check to WaitForPort function
 2026-03-03-19-15 | Fixed macOS code signing issue causing textclaw init to be killed with SIGKILL on Apple Silicon - removed old binary before copying, added --deep flag to codesign, added -ldflags -s to go build

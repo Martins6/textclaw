@@ -15,6 +15,7 @@ Phase 4 implements container integration that enables the daemon to spawn Docker
 - Fixed: Added port bindings in HostConfig to map container port 8080 to host
 - Fixed: Changed WaitForPort to use HTTP health check against localhost instead of Docker port inspection
 - Fixed: Updated runner to use localhost for connecting to containerized OpenCode server
+- Feature: Pre-start containers on daemon startup for faster message handling - containers persist while daemon runs instead of being created on-demand
 
 # File Paths
 

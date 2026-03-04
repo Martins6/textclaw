@@ -11,16 +11,18 @@ import (
 )
 
 type Provisioner struct {
-	db            *database.DB
-	workspaceBase string
-	templatePath  string
+	db                 *database.DB
+	workspaceBase      string
+	templatePath       string
+	opencodeConfigPath string
 }
 
-func New(db *database.DB, workspaceBase string, templatePath string) *Provisioner {
+func New(db *database.DB, workspaceBase string, templatePath string, opencodeConfigPath string) *Provisioner {
 	return &Provisioner{
-		db:            db,
-		workspaceBase: workspaceBase,
-		templatePath:  templatePath,
+		db:                 db,
+		workspaceBase:      workspaceBase,
+		templatePath:       templatePath,
+		opencodeConfigPath: opencodeConfigPath,
 	}
 }
 
@@ -67,6 +69,17 @@ func (p *Provisioner) createWorkspace(workspaceID string) error {
 		return err
 	}
 
+	stateDir := filepath.Join(workspacePath, "opencode-state")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		return err
+	}
+
+	if p.opencodeConfigPath != "" {
+		if err := p.copyOpenCodeConfig(workspacePath); err != nil {
+			return err
+		}
+	}
+
 	if p.templatePath != "" {
 		if err := p.copyTemplate(workspaceID); err != nil {
 			return err
@@ -99,6 +112,31 @@ func (p *Provisioner) copyTemplate(workspaceID string) error {
 			}
 			if err := os.WriteFile(dst, data, 0644); err != nil {
 				return fmt.Errorf("failed to write template %s: %w", file, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (p *Provisioner) copyOpenCodeConfig(workspacePath string) error {
+	configFiles := []string{
+		"opencode.json",
+	}
+
+	stateDir := filepath.Join(workspacePath, "opencode-state")
+
+	for _, file := range configFiles {
+		src := filepath.Join(p.opencodeConfigPath, file)
+		dst := filepath.Join(stateDir, file)
+
+		if _, err := os.Stat(src); err == nil {
+			data, err := os.ReadFile(src)
+			if err != nil {
+				return fmt.Errorf("failed to read opencode config %s: %w", file, err)
+			}
+			if err := os.WriteFile(dst, data, 0644); err != nil {
+				return fmt.Errorf("failed to write opencode config %s: %w", file, err)
 			}
 		}
 	}

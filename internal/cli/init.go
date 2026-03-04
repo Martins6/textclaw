@@ -35,7 +35,9 @@ func Init() error {
 
 	dirs := []string{
 		filepath.Join(textclawDir, "textclaw"),
-		filepath.Join(textclawDir, ".opencode"),
+		filepath.Join(textclawDir, "opencode-config"),
+		filepath.Join(textclawDir, "opencode-auth"),
+		filepath.Join(textclawDir, "opencode-state"),
 		filepath.Join(textclawDir, "workspaces", "main"),
 		filepath.Join(textclawDir, "database", "migrations"),
 		filepath.Join(textclawDir, "heartbeats"),
@@ -105,7 +107,7 @@ func Init() error {
 			Image: "textclaw/agent:latest",
 			Volumes: []string{
 				filepath.Join(textclawDir, "workspaces", "{workspace}:/home/{user}:rw"),
-				"~/.local/share/opencode:/home/{user}/.local/share/opencode:ro",
+				"~/.textclaw/opencode-config:/home/{user}/.config/opencode:ro",
 			},
 		},
 		Workspace: config.WorkspaceConfig{

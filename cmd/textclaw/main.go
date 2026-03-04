@@ -21,6 +21,7 @@ func init() {
 	rootCmd.AddCommand(cli.DaemonCmd())
 	rootCmd.AddCommand(cli.NotifyCmd())
 	rootCmd.AddCommand(cli.ContextCmd())
+	rootCmd.AddCommand(cli.OpenCodeCmd())
 }
 
 func main() {

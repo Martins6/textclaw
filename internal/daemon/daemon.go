@@ -92,11 +92,13 @@ func New(cfgPath string) (*Daemon, error) {
 	}
 
 	r := router.New(db)
-	p := provisioner.New(db, workspaceBase, "")
 
 	homeDir, _ := os.UserHomeDir()
-	openCodeAuth := filepath.Join(homeDir, ".local", "share", "opencode")
-	runr, err := runner.New(workspaceBase, openCodeAuth, db, runner.WithImage(cfg.Container.Image))
+	openCodeConfigDir := filepath.Join(homeDir, ".textclaw", "opencode-config")
+	openCodeAuthDir := filepath.Join(homeDir, ".textclaw", "opencode-auth")
+	opencodeDotPath := filepath.Join(homeDir, ".textclaw", ".opencode")
+	p := provisioner.New(db, workspaceBase, "", opencodeDotPath)
+	runr, err := runner.New(workspaceBase, openCodeConfigDir, openCodeAuthDir, db, runner.WithImage(cfg.Container.Image))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create runner: %w", err)
 	}
@@ -139,6 +141,11 @@ func (d *Daemon) Start(ctx context.Context) error {
 
 	if err := d.loadHeartbeatWorkspaces(); err != nil {
 		daemonLog(fmt.Sprintf("Failed to load heartbeat workspaces: %v", err))
+	}
+
+	daemonLog("Starting all workspace containers...")
+	if err := d.runner.StartAllContainers(ctx); err != nil {
+		daemonLog(fmt.Sprintf("Failed to start workspace containers: %v", err))
 	}
 
 	go func() {

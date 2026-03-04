@@ -314,8 +314,8 @@ OpenCode runs **inside** the container, not on the host. The daemon mounts the h
 [container]
 volumes = [
     "./workspaces/{workspace}:/home/{user}:rw",
-    # Mount host's OpenCode auth into container (read-only)
-    "~/.local/share/opencode:/home/{user}/.local/share/opencode:ro",
+    # Mount textclaw's isolated OpenCode config (read-only)
+    "~/.textclaw/opencode-config:/home/{user}/.config/opencode:ro",
 ]
 ```
 
