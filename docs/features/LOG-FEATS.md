@@ -1,3 +1,4 @@
+2026-03-04-14-07 | Added slash command system with /new, /help, /status commands and SQLite command registry
 2026-03-04-10-49 | Added pre-start containers feature to daemon startup for faster message handling
 2026-03-03-07-54 | Added Phase 1 Foundation feature with project setup, SQLite database layer, and TOML configuration
 2026-03-03-07-54 | Added Phase 2 CLI Commands feature with config, daemon, and notify subcommands

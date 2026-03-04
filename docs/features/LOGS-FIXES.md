@@ -1,3 +1,5 @@
+2026-03-04-14-07 | Fixed JSON array config escaping by adding JSON parsing helper for telegram.allowed_users and container.volumes
+2026-03-04-14-07 | Fixed textclaw init missing .opencode directory by adding the directory to the dirs slice in init.go
 2026-03-04-11-00 | Fixed "invalid session" error by correcting session ID parsing to use root-level `id` field instead of `info.session_id`
 2026-03-04-11-00 | Fixed container health check using wrong port by getting Docker-assigned host port immediately after container starts and using it for health checks
 2026-03-04-10-49 | Fixed workspace SQLite isolation by using workspace-specific state directories instead of shared ~/.textclaw/opencode-state/
