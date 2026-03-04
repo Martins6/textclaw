@@ -1,3 +1,5 @@
+2026-03-04-11-00 | Fixed "invalid session" error by correcting session ID parsing to use root-level `id` field instead of `info.session_id`
+2026-03-04-11-00 | Fixed container health check using wrong port by getting Docker-assigned host port immediately after container starts and using it for health checks
 2026-03-04-10-49 | Fixed workspace SQLite isolation by using workspace-specific state directories instead of shared ~/.textclaw/opencode-state/
 2026-03-04-10-49 | Fixed 500 internal server error on session creation by implementing dynamic port allocation for each workspace container
 2026-03-04-10-49 | Fixed container port bindings lost issue by removing and recreating stopped containers to ensure correct port bindings

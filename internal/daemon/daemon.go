@@ -222,11 +222,16 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 	}
 
 	daemonLog(fmt.Sprintf("Executing prompt in workspace %s", workspaceID))
-	response, err := d.runner.Execute(ctx, workspaceID, msg.Content)
+	result, err := d.runner.Execute(ctx, workspaceID, msg.Content)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error: %v", err)
 		daemonLog(fmt.Sprintf("Failed to execute: %v", err))
 		return d.adapter.Send(msg.ChatID, errMsg)
+	}
+
+	response := result.Response
+	if result.SessionRecreated {
+		response = "Session expired. Started a new session - previous context cleared.\n\n" + response
 	}
 
 	channelOut(msg.ChatID, response)

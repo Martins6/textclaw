@@ -182,9 +182,16 @@ type Info struct {
 	SessionID string `json:"session_id"`
 }
 
-func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (string, error) {
+var ErrInvalidSession = fmt.Errorf("invalid session")
+
+type ExecuteResult struct {
+	Response         string
+	SessionRecreated bool
+}
+
+func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (ExecuteResult, error) {
 	if err := r.EnsureContainer(ctx, workspaceID); err != nil {
-		return "", fmt.Errorf("failed to ensure container: %w", err)
+		return ExecuteResult{}, fmt.Errorf("failed to ensure container: %w", err)
 	}
 
 	ip := "localhost"
@@ -194,17 +201,37 @@ func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (strin
 		var err error
 		sessionID, err = r.ensureSession(ctx, ip, workspaceID)
 		if err != nil {
-			return "", fmt.Errorf("failed to ensure session: %w", err)
+			return ExecuteResult{}, fmt.Errorf("failed to ensure session: %w", err)
 		}
 		r.SetCurrentSession(workspaceID, sessionID)
 	}
 
 	response, err := r.sendMessage(ctx, ip, workspaceID, sessionID, prompt)
 	if err != nil {
-		return "", fmt.Errorf("failed to send message: %w", err)
+		if err == ErrInvalidSession {
+			log.Printf("Session expired, creating new session for workspace %s", workspaceID)
+			r.SetCurrentSession(workspaceID, "")
+
+			sessionID, err = r.ensureSession(ctx, ip, workspaceID)
+			if err != nil {
+				return ExecuteResult{}, fmt.Errorf("failed to create new session: %w", err)
+			}
+			r.SetCurrentSession(workspaceID, sessionID)
+
+			response, err = r.sendMessage(ctx, ip, workspaceID, sessionID, prompt)
+			if err != nil {
+				return ExecuteResult{}, fmt.Errorf("failed to send message: %w", err)
+			}
+
+			return ExecuteResult{
+				Response:         r.formatResponse(response),
+				SessionRecreated: true,
+			}, nil
+		}
+		return ExecuteResult{}, fmt.Errorf("failed to send message: %w", err)
 	}
 
-	return r.formatResponse(response), nil
+	return ExecuteResult{Response: r.formatResponse(response)}, nil
 }
 
 func (r *Runner) EnsureContainer(ctx context.Context, workspaceID string) error {
@@ -256,7 +283,9 @@ func (r *Runner) EnsureContainer(ctx context.Context, workspaceID string) error 
 	r.workspaceIPs[workspaceID] = ip
 	r.mu.Unlock()
 
-	err = r.containerMgr.WaitForPort(ctx, containerID, r.openCodePort, 120*time.Second)
+	log.Printf("Using existing container for workspace %s on port %s", workspaceID, port)
+
+	err = r.containerMgr.WaitForPort(ctx, containerID, port, 120*time.Second)
 	if err != nil {
 		return fmt.Errorf("container running but OpenCode server not ready: %w", err)
 	}
@@ -292,20 +321,22 @@ func (r *Runner) createAndStartContainer(ctx context.Context, workspaceID, conta
 		return "", "", "", err
 	}
 
-	err = r.containerMgr.WaitForPort(ctx, containerID, r.openCodePort, 120*time.Second)
-	if err != nil {
-		return "", "", "", fmt.Errorf("container started but OpenCode server not ready: %w", err)
-	}
-
 	port, err := r.containerMgr.GetContainerPort(ctx, containerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to get container port: %w", err)
+	}
+
+	err = r.containerMgr.WaitForPort(ctx, containerID, port, 120*time.Second)
+	if err != nil {
+		return "", "", "", fmt.Errorf("container started but OpenCode server not ready: %w", err)
 	}
 
 	ip, err := r.containerMgr.GetContainerIP(ctx, containerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to get container IP: %w", err)
 	}
+
+	log.Printf("Container %s started on port %s, IP %s", containerID[:12], port, ip)
 
 	return containerID, port, ip, nil
 }
@@ -354,16 +385,19 @@ func (r *Runner) ensureSession(ctx context.Context, ip, workspaceID string) (str
 	}
 
 	var sessionResp struct {
-		Info struct {
-			SessionID string `json:"session_id"`
-		} `json:"info"`
+		ID string `json:"id"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&sessionResp); err != nil {
-		return "", fmt.Errorf("failed to decode session response: %w", err)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to decode session response: %w, body: %s", err, string(bodyBytes))
 	}
 
-	return sessionResp.Info.SessionID, nil
+	if sessionResp.ID == "" {
+		return "", fmt.Errorf("empty session ID returned from OpenCode server")
+	}
+
+	return sessionResp.ID, nil
 }
 
 func (r *Runner) sendMessage(ctx context.Context, ip, workspaceID, sessionID, prompt string) (*Response, error) {
@@ -401,8 +435,22 @@ func (r *Runner) sendMessage(ctx context.Context, ip, workspaceID, sessionID, pr
 		return nil, fmt.Errorf("failed to send message: %s - %s", resp.Status, string(bodyBytes))
 	}
 
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if len(bodyBytes) > 0 && bodyBytes[0] == '<' {
+		maxLen := 200
+		if len(bodyBytes) > maxLen {
+			bodyBytes = bodyBytes[:maxLen]
+		}
+		log.Printf("Invalid session response from OpenCode (sessionID: %s), body: %s", sessionID, string(bodyBytes))
+		return nil, ErrInvalidSession
+	}
+
 	var response Response
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
