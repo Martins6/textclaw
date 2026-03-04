@@ -470,7 +470,7 @@ func (r *Runner) formatResponse(resp *Response) string {
 func (r *Runner) NewSession(ctx context.Context, workspaceID string) (string, error) {
 	containerName := fmt.Sprintf("textclaw-%s", workspaceID)
 
-	exists, _, containerID, err := r.containerMgr.ContainerExists(ctx, containerName)
+	exists, _, _, err := r.containerMgr.ContainerExists(ctx, containerName)
 	if err != nil {
 		return "", fmt.Errorf("failed to check container: %w", err)
 	}
@@ -479,10 +479,41 @@ func (r *Runner) NewSession(ctx context.Context, workspaceID string) (string, er
 		return "", fmt.Errorf("container not running for workspace %s", workspaceID)
 	}
 
-	ip, err := r.containerMgr.GetContainerIP(ctx, containerID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get container IP: %w", err)
+	port := r.getWorkspacePort(workspaceID)
+	if port == "" {
+		port = r.openCodePort
 	}
 
-	return r.ensureSession(ctx, ip, workspaceID)
+	url := fmt.Sprintf("http://localhost:%s/session", port)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to create session: %s - %s", resp.Status, string(bodyBytes))
+	}
+
+	var sessionResp struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&sessionResp); err != nil {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to decode session response: %w, body: %s", err, string(bodyBytes))
+	}
+
+	if sessionResp.ID == "" {
+		return "", fmt.Errorf("empty session ID returned from OpenCode server")
+	}
+
+	return sessionResp.ID, nil
 }

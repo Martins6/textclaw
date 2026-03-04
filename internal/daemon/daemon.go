@@ -6,11 +6,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Martins6/textclaw/internal/config"
+	"github.com/Martins6/textclaw/internal/daemon/commands"
 	"github.com/Martins6/textclaw/internal/daemon/heartbeat"
 	"github.com/Martins6/textclaw/internal/daemon/listener"
 	"github.com/Martins6/textclaw/internal/daemon/provisioner"
@@ -64,6 +64,7 @@ type Daemon struct {
 	runner             *runner.Runner
 	workspaceBase      string
 	heartbeatScheduler *heartbeat.Scheduler
+	commandHandler     *commands.Handler
 }
 
 func New(cfgPath string) (*Daemon, error) {
@@ -134,6 +135,12 @@ func (d *Daemon) Start(ctx context.Context) error {
 	d.adapter = adapter
 
 	daemonLog(fmt.Sprintf("Starting TextClaw daemon with %s adapter", adapter.Name()))
+
+	cmdRegistry := commands.NewRegistry(d.db)
+	if err := cmdRegistry.SeedDefaultCommands(); err != nil {
+		daemonLog(fmt.Sprintf("Failed to seed default commands: %v", err))
+	}
+	d.commandHandler = commands.NewHandler(cmdRegistry, d.runner, adapter)
 
 	if err := d.heartbeatScheduler.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start heartbeat scheduler: %w", err)
@@ -209,16 +216,14 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 		daemonLog(fmt.Sprintf("Failed to save message: %v", err))
 	}
 
-	if strings.HasPrefix(msg.Content, "/new") || strings.HasPrefix(msg.Content, "/new session") {
-		daemonLog(fmt.Sprintf("Creating new session for workspace %s", workspaceID))
-		sessionID, err := d.runner.NewSession(ctx, workspaceID)
+	if d.commandHandler != nil {
+		handled, err := d.commandHandler.HandleCommand(ctx, msg, workspaceID)
 		if err != nil {
-			errMsg := fmt.Sprintf("Failed to create new session: %v", err)
-			daemonLog(errMsg)
-			return d.adapter.Send(msg.ChatID, errMsg)
+			daemonLog(fmt.Sprintf("Command handler error: %v", err))
 		}
-		d.runner.SetCurrentSession(workspaceID, sessionID)
-		return d.adapter.Send(msg.ChatID, "New session created! Previous context cleared.")
+		if handled {
+			return nil
+		}
 	}
 
 	daemonLog(fmt.Sprintf("Executing prompt in workspace %s", workspaceID))

@@ -32,6 +32,14 @@ type Message struct {
 	Timestamp   time.Time
 }
 
+type Command struct {
+	ID          int64
+	Name        string
+	Description string
+	Action      string
+	CreatedAt   time.Time
+}
+
 func InitDB(path string) (*DB, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -86,6 +94,14 @@ func InitSchema(db *DB) error {
 	CREATE INDEX IF NOT EXISTS idx_messages_workspace ON messages(workspace_id);
 	CREATE INDEX IF NOT EXISTS idx_messages_contact ON messages(contact_id);
 	CREATE INDEX IF NOT EXISTS idx_contacts_workspace ON contacts(workspace_id);
+
+	CREATE TABLE IF NOT EXISTS commands (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		description TEXT NOT NULL,
+		action TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 	_, err := db.Exec(schema)
 	return err
@@ -302,4 +318,42 @@ func SearchByKeyword(db *DB, workspaceID string, query string, limit int) ([]Sea
 		results = append(results, r)
 	}
 	return results, rows.Err()
+}
+
+func InsertCommand(db *DB, name, description, action string) error {
+	_, err := db.Exec(
+		"INSERT OR REPLACE INTO commands (name, description, action) VALUES (?, ?, ?)",
+		name, description, action,
+	)
+	return err
+}
+
+func GetCommands(db *DB) ([]Command, error) {
+	rows, err := db.Query("SELECT id, name, description, action, created_at FROM commands ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var commands []Command
+	for rows.Next() {
+		var c Command
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Action, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		commands = append(commands, c)
+	}
+	return commands, rows.Err()
+}
+
+func GetCommandByName(db *DB, name string) (*Command, error) {
+	var c Command
+	err := db.QueryRow(
+		"SELECT id, name, description, action, created_at FROM commands WHERE name = ?",
+		name,
+	).Scan(&c.ID, &c.Name, &c.Description, &c.Action, &c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }

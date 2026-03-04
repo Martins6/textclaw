@@ -43,6 +43,7 @@ func Init() error {
 		filepath.Join(textclawDir, "heartbeats"),
 		filepath.Join(textclawDir, "cronjobs"),
 		filepath.Join(textclawDir, "models"),
+		filepath.Join(textclawDir, ".opencode"),
 	}
 
 	for _, dir := range dirs {

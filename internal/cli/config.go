@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,16 @@ import (
 
 	"github.com/Martins6/textclaw/internal/config"
 )
+
+func parseStringArray(value string) []string {
+	if len(value) >= 2 && value[0] == '[' && value[len(value)-1] == ']' {
+		var arr []string
+		if err := json.Unmarshal([]byte(value), &arr); err == nil {
+			return arr
+		}
+	}
+	return []string{value}
+}
 
 func ConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -81,12 +92,14 @@ func configSet(key, value string) error {
 	switch key {
 	case "container.image":
 		cfg.Container.Image = value
+	case "container.volumes":
+		cfg.Container.Volumes = parseStringArray(value)
 	case "workspace.base_path":
 		cfg.Workspace.BasePath = value
 	case "telegram.token":
 		cfg.Telegram.Token = value
 	case "telegram.allowed_users":
-		cfg.Telegram.AllowedUsers = []string{value}
+		cfg.Telegram.AllowedUsers = parseStringArray(value)
 	default:
 		return fmt.Errorf("unknown key: %s", key)
 	}
