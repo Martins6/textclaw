@@ -7,13 +7,50 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Martins6/textclaw/internal/container"
+	"github.com/Martins6/textclaw/internal/daemon/logs"
 	"github.com/Martins6/textclaw/internal/database"
 )
+
+var httpClient = &http.Client{}
+
+const maxRetries = 3
+
+func isTransientError(err error) bool {
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "empty response") ||
+		strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "context deadline") ||
+		strings.Contains(errMsg, "no such host")
+}
+
+func withRetry(ctx context.Context, fn func() error) error {
+	var err error
+	for i := 0; i < maxRetries; i++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		if !isTransientError(err) {
+			return err
+		}
+		if i < maxRetries-1 {
+			backoff := time.Duration(math.Pow(2, float64(i))) * time.Second
+			log.Printf("Retry attempt %d/%d after %v: %v", i+1, maxRetries, backoff, err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+	}
+	return err
+}
 
 type Runner struct {
 	containerMgr      *container.Manager
@@ -27,6 +64,7 @@ type Runner struct {
 	workspaceIPs      map[string]string
 	mu                sync.RWMutex
 	db                *database.DB
+	mainUserID        string
 }
 
 type RunnerOption func(*Runner)
@@ -43,7 +81,7 @@ func WithOpenCodePort(port string) RunnerOption {
 	}
 }
 
-func New(workspaceDir, openCodeConfigDir, openCodeAuthDir string, db *database.DB, opts ...RunnerOption) (*Runner, error) {
+func New(workspaceDir, openCodeConfigDir, openCodeAuthDir string, db *database.DB, mainUserID string, opts ...RunnerOption) (*Runner, error) {
 	containerMgr, err := container.NewManager()
 	if err != nil {
 		return nil, err
@@ -60,6 +98,7 @@ func New(workspaceDir, openCodeConfigDir, openCodeAuthDir string, db *database.D
 		workspacePorts:    make(map[string]string),
 		workspaceIPs:      make(map[string]string),
 		db:                db,
+		mainUserID:        mainUserID,
 	}
 
 	for _, opt := range opts {
@@ -173,9 +212,14 @@ type Part struct {
 	Text string `json:"text,omitempty"`
 }
 
+type ResponsePart struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
 type Response struct {
-	Info  Info   `json:"info"`
-	Parts []Part `json:"parts"`
+	Info  Info           `json:"info"`
+	Parts []ResponsePart `json:"parts"`
 }
 
 type Info struct {
@@ -190,6 +234,8 @@ type ExecuteResult struct {
 }
 
 func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (ExecuteResult, error) {
+	logs.Log(workspaceID, "EXECUTE", fmt.Sprintf("Sending prompt to workspace: %.50s...", prompt))
+
 	if err := r.EnsureContainer(ctx, workspaceID); err != nil {
 		return ExecuteResult{}, fmt.Errorf("failed to ensure container: %w", err)
 	}
@@ -208,8 +254,9 @@ func (r *Runner) Execute(ctx context.Context, workspaceID, prompt string) (Execu
 
 	response, err := r.sendMessage(ctx, ip, workspaceID, sessionID, prompt)
 	if err != nil {
-		if err == ErrInvalidSession {
-			log.Printf("Session expired, creating new session for workspace %s", workspaceID)
+		if err == ErrInvalidSession || strings.Contains(err.Error(), "empty response") {
+			log.Printf("Session invalid or expired (empty response), creating new session for workspace %s", workspaceID)
+			logs.Log(workspaceID, "EXECUTE", "Session expired/invalid, creating new session")
 			r.SetCurrentSession(workspaceID, "")
 
 			sessionID, err = r.ensureSession(ctx, ip, workspaceID)
@@ -284,6 +331,7 @@ func (r *Runner) EnsureContainer(ctx context.Context, workspaceID string) error 
 	r.mu.Unlock()
 
 	log.Printf("Using existing container for workspace %s on port %s", workspaceID, port)
+	logs.Log(workspaceID, "CONTAINER", fmt.Sprintf("Using existing container on port %s", port))
 
 	err = r.containerMgr.WaitForPort(ctx, containerID, port, 120*time.Second)
 	if err != nil {
@@ -337,15 +385,22 @@ func (r *Runner) createAndStartContainer(ctx context.Context, workspaceID, conta
 	}
 
 	log.Printf("Container %s started on port %s, IP %s", containerID[:12], port, ip)
+	logs.Log(workspaceID, "CONTAINER", fmt.Sprintf("Container %s started on port %s, IP %s", containerID[:12], port, ip))
 
 	return containerID, port, ip, nil
 }
 
 func (r *Runner) getWorkspacePath(workspaceID string) string {
+	if workspaceID == r.mainUserID {
+		return r.workspaceDir
+	}
 	return fmt.Sprintf("%s/%s", r.workspaceDir, workspaceID)
 }
 
 func (r *Runner) getWorkspaceStatePath(workspaceID string) string {
+	if workspaceID == r.mainUserID {
+		return fmt.Sprintf("%s/opencode-state", r.workspaceDir)
+	}
 	return fmt.Sprintf("%s/%s/opencode-state", r.workspaceDir, workspaceID)
 }
 
@@ -373,7 +428,7 @@ func (r *Runner) ensureSession(ctx context.Context, ip, workspaceID string) (str
 		return "", err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -407,6 +462,8 @@ func (r *Runner) sendMessage(ctx context.Context, ip, workspaceID, sessionID, pr
 	}
 	url := fmt.Sprintf("http://%s:%s/session/%s/message", ip, port, sessionID)
 
+	log.Printf("[DEBUG] Sending message to workspace %s, session %s, URL: %s", workspaceID, sessionID, url)
+
 	msg := Message{
 		Parts: []Part{
 			{Type: "text", Text: prompt},
@@ -418,26 +475,38 @@ func (r *Runner) sendMessage(ctx context.Context, ip, workspaceID, sessionID, pr
 		return nil, err
 	}
 
+	log.Printf("[DEBUG] Request body: %s", string(body))
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
+		log.Printf("[DEBUG] HTTP request failed for workspace %s: %v", workspaceID, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	log.Printf("[DEBUG] Response status for workspace %s: %s, Content-Type: %s", workspaceID, resp.Status, resp.Header.Get("Content-Type"))
+
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("[DEBUG] Non-OK status for workspace %s, body: %s", workspaceID, string(bodyBytes))
 		return nil, fmt.Errorf("failed to send message: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	log.Printf("[DEBUG] Response body length for workspace %s: %d bytes, raw: %q", workspaceID, len(bodyBytes), string(bodyBytes))
+
+	if len(bodyBytes) == 0 {
+		return nil, fmt.Errorf("empty response from container (sessionID: %s)", sessionID)
 	}
 
 	if len(bodyBytes) > 0 && bodyBytes[0] == '<' {
@@ -451,6 +520,7 @@ func (r *Runner) sendMessage(ctx context.Context, ip, workspaceID, sessionID, pr
 
 	var response Response
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		log.Printf("[DEBUG] JSON decode error for workspace %s: %v, body: %s", workspaceID, err, string(bodyBytes))
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -491,7 +561,7 @@ func (r *Runner) NewSession(ctx context.Context, workspaceID string) (string, er
 		return "", err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
