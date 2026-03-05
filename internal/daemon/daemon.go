@@ -78,16 +78,16 @@ func New(cfgPath string) (*Daemon, error) {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
 	workspaceBase := cfg.Workspace.BasePath
 	if workspaceBase == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
-		}
 		workspaceBase = filepath.Join(homeDir, ".textclaw", "workspaces")
 	}
 
-	dbPath := filepath.Join(filepath.Dir(cfgPath), "..", "database", "sqlite.db")
+	dbPath := filepath.Join(homeDir, ".textclaw", "database", "sqlite.db")
 	db, err := database.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -99,7 +99,6 @@ func New(cfgPath string) (*Daemon, error) {
 
 	r := router.New(db)
 
-	homeDir, _ := os.UserHomeDir()
 	openCodeConfigDir := filepath.Join(homeDir, ".textclaw", "opencode-config")
 	openCodeAuthDir := filepath.Join(homeDir, ".textclaw", "opencode-auth")
 	opencodeDotPath := filepath.Join(homeDir, ".textclaw", ".opencode")
@@ -121,7 +120,11 @@ func New(cfgPath string) (*Daemon, error) {
 
 	p := provisioner.New(db, workspaceBase, "", opencodeDotPath, mainUserID)
 
-	runr, err := runner.New(workspaceBase, openCodeConfigDir, openCodeAuthDir, db, mainUserID, runner.WithImage(cfg.Container.Image))
+	agent := cfg.Main.Agent
+	provider := cfg.Main.Provider
+	model := cfg.Main.Model
+
+	runr, err := runner.New(workspaceBase, filepath.Join(homeDir, ".textclaw"), openCodeConfigDir, openCodeAuthDir, db, mainUserID, agent, provider, model, runner.WithImage(cfg.Container.Image))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create runner: %w", err)
 	}

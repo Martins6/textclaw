@@ -14,3 +14,12 @@ base_path = "./workspaces"
 [telegram]
 # token = "YOUR_BOT_TOKEN"  # Set via: textclaw config set telegram.token "YOUR_TOKEN"
 allowed_users = []
+
+# Main user (admin) configuration
+# The main user gets access to ~/.textclaw as their workspace
+[main]
+enabled = false
+# telegram_id = "your_telegram_username"
+agent = "build"
+provider = "minimax"
+model = "MiniMax-M2.5"

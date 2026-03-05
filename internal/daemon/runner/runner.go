@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +19,9 @@ import (
 	"github.com/Martins6/textclaw/internal/database"
 )
 
-var httpClient = &http.Client{}
+var httpClient = &http.Client{
+	Timeout: 5 * time.Minute,
+}
 
 const maxRetries = 3
 
@@ -55,6 +58,7 @@ func withRetry(ctx context.Context, fn func() error) error {
 type Runner struct {
 	containerMgr      *container.Manager
 	workspaceDir      string
+	textClawRootDir   string
 	openCodeConfigDir string
 	openCodeAuthDir   string
 	image             string
@@ -65,6 +69,9 @@ type Runner struct {
 	mu                sync.RWMutex
 	db                *database.DB
 	mainUserID        string
+	defaultAgent      string
+	defaultProvider   string
+	defaultModel      string
 }
 
 type RunnerOption func(*Runner)
@@ -81,7 +88,7 @@ func WithOpenCodePort(port string) RunnerOption {
 	}
 }
 
-func New(workspaceDir, openCodeConfigDir, openCodeAuthDir string, db *database.DB, mainUserID string, opts ...RunnerOption) (*Runner, error) {
+func New(workspaceDir, textClawRootDir, openCodeConfigDir, openCodeAuthDir string, db *database.DB, mainUserID, defaultAgent, defaultProvider, defaultModel string, opts ...RunnerOption) (*Runner, error) {
 	containerMgr, err := container.NewManager()
 	if err != nil {
 		return nil, err
@@ -90,6 +97,7 @@ func New(workspaceDir, openCodeConfigDir, openCodeAuthDir string, db *database.D
 	r := &Runner{
 		containerMgr:      containerMgr,
 		workspaceDir:      workspaceDir,
+		textClawRootDir:   textClawRootDir,
 		openCodeConfigDir: openCodeConfigDir,
 		openCodeAuthDir:   openCodeAuthDir,
 		image:             "opencode:latest",
@@ -99,6 +107,9 @@ func New(workspaceDir, openCodeConfigDir, openCodeAuthDir string, db *database.D
 		workspaceIPs:      make(map[string]string),
 		db:                db,
 		mainUserID:        mainUserID,
+		defaultAgent:      defaultAgent,
+		defaultProvider:   defaultProvider,
+		defaultModel:      defaultModel,
 	}
 
 	for _, opt := range opts {
@@ -204,7 +215,19 @@ func (r *Runner) SetCurrentSession(workspaceID, sessionID string) {
 }
 
 type Message struct {
-	Parts []Part `json:"parts"`
+	Parts []Part        `json:"parts"`
+	Agent string        `json:"agent,omitempty"`
+	Model *MessageModel `json:"model,omitempty"`
+}
+
+type MessageModel struct {
+	ProviderID string `json:"providerID,omitempty"`
+	ModelID    string `json:"modelID,omitempty"`
+}
+
+type ModelInfo struct {
+	ProviderID string `json:"providerID"`
+	ModelID    string `json:"modelID"`
 }
 
 type Part struct {
@@ -354,9 +377,11 @@ func (r *Runner) createAndStartContainer(ctx context.Context, workspaceID, conta
 		Image:             r.image,
 		Name:              containerName,
 		WorkspaceDir:      workspacePath,
+		TextClawRootDir:   r.textClawRootDir,
 		OpenCodeConfigDir: r.openCodeConfigDir,
 		OpenCodeAuthDir:   r.openCodeAuthDir,
 		OpenCodeStateDir:  r.getWorkspaceStatePath(workspaceID),
+		MainWorkspace:     workspaceID == "main",
 	}
 
 	containerID, err := r.containerMgr.CreateContainer(ctx, cfg)
@@ -391,15 +416,16 @@ func (r *Runner) createAndStartContainer(ctx context.Context, workspaceID, conta
 }
 
 func (r *Runner) getWorkspacePath(workspaceID string) string {
-	if workspaceID == r.mainUserID {
-		return r.workspaceDir
+	if workspaceID == "main" {
+		return filepath.Dir(r.workspaceDir)
 	}
 	return fmt.Sprintf("%s/%s", r.workspaceDir, workspaceID)
 }
 
 func (r *Runner) getWorkspaceStatePath(workspaceID string) string {
-	if workspaceID == r.mainUserID {
-		return fmt.Sprintf("%s/opencode-state", r.workspaceDir)
+	if workspaceID == "main" {
+		rootDir := filepath.Dir(r.workspaceDir)
+		return fmt.Sprintf("%s/opencode-state", rootDir)
 	}
 	return fmt.Sprintf("%s/%s/opencode-state", r.workspaceDir, workspaceID)
 }
@@ -468,6 +494,8 @@ func (r *Runner) sendMessage(ctx context.Context, ip, workspaceID, sessionID, pr
 		Parts: []Part{
 			{Type: "text", Text: prompt},
 		},
+		Agent: r.defaultAgent,
+		Model: &MessageModel{ProviderID: r.defaultProvider, ModelID: r.defaultModel},
 	}
 
 	body, err := json.Marshal(msg)

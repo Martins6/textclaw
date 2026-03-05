@@ -47,7 +47,7 @@ func (p *Provisioner) EnsureWorkspace(contactID string) (workspaceID string, err
 	workspaceID = slugify(contactID)
 
 	if isMainUser {
-		workspaceID = ""
+		workspaceID = "main"
 	}
 
 	if err := p.createWorkspace(workspaceID); err != nil {

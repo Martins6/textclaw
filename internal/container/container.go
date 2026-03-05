@@ -93,6 +93,7 @@ type ContainerConfig struct {
 	OpenCodeConfigDir string
 	OpenCodeAuthDir   string
 	OpenCodeStateDir  string
+	TextClawRootDir   string
 	MainWorkspace     bool
 	OtherWorkspaces   []string
 }
@@ -124,8 +125,33 @@ func (m *Manager) CreateContainer(ctx context.Context, cfg ContainerConfig) (str
 	}
 
 	if cfg.MainWorkspace {
+		setupTomlPath := filepath.Join(cfg.WorkspaceDir, "setup.toml")
+		if _, err := os.Stat(setupTomlPath); err == nil {
+			binds = append(binds, fmt.Sprintf("%s:/home/user/setup.toml:ro", setupTomlPath))
+		}
 		for _, ws := range cfg.OtherWorkspaces {
 			binds = append(binds, fmt.Sprintf("%s:/home/user/workspaces/%s:ro", cfg.WorkspaceDir, ws))
+		}
+
+		if cfg.TextClawRootDir != "" {
+			rootDir := cfg.TextClawRootDir
+
+			dirs := map[string]string{
+				"database":   "rw",
+				"heartbeats": "rw",
+				"cronjobs":   "rw",
+				"models":     "rw",
+				"textclaw":   "rw",
+				"logs":       "rw",
+				".opencode":  "ro",
+			}
+
+			for dirName, mode := range dirs {
+				dirPath := filepath.Join(rootDir, dirName)
+				if _, err := os.Stat(dirPath); err == nil {
+					binds = append(binds, fmt.Sprintf("%s:/home/user/.textclaw/%s:%s", dirPath, dirName, mode))
+				}
+			}
 		}
 	}
 

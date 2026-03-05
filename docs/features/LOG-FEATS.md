@@ -1,3 +1,4 @@
+2026-03-05-00-00 | Added mount all TextClaw directories feature - mounts database, heartbeats, cronjobs, models, .opencode, textclaw, and logs directories to main user container for full workspace access
 2026-03-04-17-02 | Added daemon logging feature - writes all daemon events and workspace interactions to ~/.textclaw/logs/{workspace_id}/{YYYY-MM-DD}.log with textclaw daemon logs CLI command for retrieval and live tail
 2026-03-04-16-22 | Added main user/group feature - designates a Telegram user as main/admin with full access to all workspaces, uses root ~/.textclaw directory instead of workspace subdirectory, and can access all workspace containers
 2026-03-04-14-07 | Added slash command system with /new, /help, /status commands and SQLite command registry

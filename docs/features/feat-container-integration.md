@@ -16,6 +16,7 @@ Phase 4 implements container integration that enables the daemon to spawn Docker
 - Fixed: Changed WaitForPort to use HTTP health check against localhost instead of Docker port inspection
 - Fixed: Updated runner to use localhost for connecting to containerized OpenCode server
 - Feature: Pre-start containers on daemon startup for faster message handling - containers persist while daemon runs instead of being created on-demand
+- Feature: Mount all ~/.textclaw directories to main workspace container - mounts database, heartbeats, cronjobs, models, .opencode, textclaw, and logs directories to /home/user/.textclaw/ in the main user container
 
 # File Paths
 

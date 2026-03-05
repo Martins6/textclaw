@@ -33,6 +33,9 @@ type TelegramConfig struct {
 type MainConfig struct {
 	Enabled    bool   `toml:"enabled"`
 	TelegramID string `toml:"telegram_id"`
+	Agent      string `toml:"agent"`
+	Provider   string `toml:"provider"`
+	Model      string `toml:"model"`
 }
 
 func Load(path string) (*Config, error) {

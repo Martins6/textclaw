@@ -1,3 +1,4 @@
+2026-03-05-00-00 | Fixed main user routing bug - changed workspace ID comparison from `workspaceID == mainUserID` to `workspaceID == "main"` in runner.go to correctly route main user to root ~/.textclaw directory
 2026-03-04-21-50 | Fixed JSON decoding error by correcting OpenCode API field names - use "text" for request and response, added HTTP client with no timeout, added empty response handling, added retry logic with exponential backoff, and added session auto-recreation on invalid/empty responses
 2026-03-04-18-16 | Fixed case-insensitive Telegram ID matching - converted username and allowed_users to lowercase before comparison in telegram.go and provisioner.go
 2026-03-04-14-07 | Fixed JSON array config escaping by adding JSON parsing helper for telegram.allowed_users and container.volumes
