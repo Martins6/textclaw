@@ -41,11 +41,11 @@ func opencodeAuth(cmd *cobra.Command, args []string) error {
 
 	stateDir := filepath.Join(textclawDir, "opencode-state")
 
-	fmt.Println("Running: script -q /dev/null -- docker run -it --rm -v", opencodeAuthDir+":/home/user/.local/share/opencode:rw", "-v", stateDir+":/home/user/.local/state:rw", image, "/home/user/.opencode/bin/opencode auth login")
+	fmt.Println("Running: docker run -it --rm -v", opencodeAuthDir+":/home/user/.local/share/opencode:rw", "-v", stateDir+":/home/user/.local/state:rw", image, "/home/user/.opencode/bin/opencode auth login")
 	fmt.Println()
 
 	dockerCmd := exec.Command(
-		"script", "-q", "/dev/null", "--", "docker", "run", "-it", "--rm",
+		"docker", "run", "-it", "--rm",
 		"-v", fmt.Sprintf("%s:/home/user/.local/share/opencode:rw", opencodeAuthDir),
 		"-v", fmt.Sprintf("%s:/home/user/.local/state:rw", stateDir),
 		"-e", "HOME=/home/user",
