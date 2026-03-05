@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -12,6 +13,7 @@ type Config struct {
 	Container ContainerConfig `toml:"container"`
 	Workspace WorkspaceConfig `toml:"workspace"`
 	Telegram  TelegramConfig  `toml:"telegram"`
+	Main      MainConfig      `toml:"main"`
 }
 
 type ContainerConfig struct {
@@ -26,6 +28,11 @@ type WorkspaceConfig struct {
 type TelegramConfig struct {
 	Token        string   `toml:"token"`
 	AllowedUsers []string `toml:"allowed_users"`
+}
+
+type MainConfig struct {
+	Enabled    bool   `toml:"enabled"`
+	TelegramID string `toml:"telegram_id"`
 }
 
 func Load(path string) (*Config, error) {
@@ -68,4 +75,26 @@ func Save(path string, cfg *Config) error {
 	}
 
 	return nil
+}
+
+func (c *Config) IsMainUser(contactID string) bool {
+	if !c.Main.Enabled {
+		return false
+	}
+
+	if c.Main.TelegramID == "" {
+		return false
+	}
+
+	mainID := strings.ToLower(c.Main.TelegramID)
+	contactIDLower := strings.ToLower(contactID)
+
+	if mainID == contactIDLower {
+		return true
+	}
+
+	mainIDNoAt := strings.ReplaceAll(mainID, "@", "")
+	contactIDNoAt := strings.ReplaceAll(contactIDLower, "@", "")
+
+	return mainIDNoAt == contactIDNoAt
 }

@@ -79,9 +79,11 @@ func (a *TelegramAdapter) isAllowed(username string) bool {
 		return true
 	}
 
+	usernameLower := strings.ToLower(username)
 	for _, user := range a.allowedUsers {
 		user = strings.TrimPrefix(user, "@")
-		if user == username {
+		user = strings.ToLower(user)
+		if user == usernameLower {
 			return true
 		}
 	}

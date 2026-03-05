@@ -1,4 +1,5 @@
 2026-03-04-21-50 | Fixed JSON decoding error by correcting OpenCode API field names - use "text" for request and response, added HTTP client with no timeout, added empty response handling, added retry logic with exponential backoff, and added session auto-recreation on invalid/empty responses
+2026-03-04-18-16 | Fixed case-insensitive Telegram ID matching - converted username and allowed_users to lowercase before comparison in telegram.go and provisioner.go
 2026-03-04-14-07 | Fixed JSON array config escaping by adding JSON parsing helper for telegram.allowed_users and container.volumes
 2026-03-04-14-07 | Fixed textclaw init missing .opencode directory by adding the directory to the dirs slice in init.go
 2026-03-04-11-00 | Fixed "invalid session" error by correcting session ID parsing to use root-level `id` field instead of `info.session_id`

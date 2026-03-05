@@ -195,6 +195,34 @@ textclaw context recent --limit 10
 └─────────────────┘
 ```
 
+## OpenCode Authentication
+
+To use AI agents with TextClaw, you need to authenticate with OpenCode providers. This is done by running the `opencode auth login` command which opens a container where you can log in to your AI provider.
+
+### Setup
+
+```bash
+textclaw opencode auth
+```
+
+This will:
+1. Create `~/.textclaw/opencode-auth/` directory
+2. Create `~/.textclaw/opencode-state/` directory
+3. Spawn a container with the agent image
+4. Run `opencode auth login` interactively
+
+Follow the on-screen instructions to authenticate with your AI provider (e.g., OpenAI, Anthropic, etc.).
+
+### How It Works
+
+- The authentication is saved to `~/.textclaw/opencode-auth/`
+- This directory is mounted into each agent container at `/home/user/.local/share/opencode`
+- This allows all workspaces to share the same AI authentication
+
+### Persisting Auth
+
+The auth is stored in the `opencode-auth` directory in your TextClaw config folder. This directory is bind-mounted into every container, so you only need to authenticate once.
+
 ## Development
 
 ```bash

@@ -11,3 +11,5 @@ TextClaw is an AI-powered messaging daemon that connects to messaging channels (
 - feat-heartbeat-sessions.md - Cron-based heartbeat scheduler and session management with /new command
 - feat-context-search.md - Vector search with sqlite-vec embeddings and llama.cpp for historical memory
 - feat-slash-commands.md - Slash command system with /new, /help, /status and SQLite command registry
+- feat-daemon-logging.md - Comprehensive logging to ~/.textclaw/logs with CLI access and live tail
+- feat-main-user.md - Main user/admin designation with access to all workspaces

@@ -15,14 +15,16 @@ type Provisioner struct {
 	workspaceBase      string
 	templatePath       string
 	opencodeConfigPath string
+	mainUserID         string
 }
 
-func New(db *database.DB, workspaceBase string, templatePath string, opencodeConfigPath string) *Provisioner {
+func New(db *database.DB, workspaceBase string, templatePath string, opencodeConfigPath string, mainUserID string) *Provisioner {
 	return &Provisioner{
 		db:                 db,
 		workspaceBase:      workspaceBase,
 		templatePath:       templatePath,
 		opencodeConfigPath: opencodeConfigPath,
+		mainUserID:         mainUserID,
 	}
 }
 
@@ -36,18 +38,30 @@ func (p *Provisioner) EnsureWorkspace(contactID string) (workspaceID string, err
 		return "", fmt.Errorf("failed to check contact: %w", err)
 	}
 
+	mainID := strings.ToLower(p.mainUserID)
+	contactIDLower := strings.ToLower(contactID)
+	mainIDNoAt := strings.ReplaceAll(mainID, "@", "")
+	contactIDNoAt := strings.ReplaceAll(contactIDLower, "@", "")
+	isMainUser := mainIDNoAt == contactIDNoAt
+
 	workspaceID = slugify(contactID)
+
+	if isMainUser {
+		workspaceID = ""
+	}
 
 	if err := p.createWorkspace(workspaceID); err != nil {
 		return "", fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
-	if err := database.CreateWorkspace(p.db, workspaceID); err != nil {
-		return "", fmt.Errorf("failed to create workspace in database: %w", err)
+	if workspaceID != "" {
+		if err := database.CreateWorkspace(p.db, workspaceID); err != nil {
+			return "", fmt.Errorf("failed to create workspace in database: %w", err)
+		}
 	}
 
 	role := "user"
-	if isMainGroup(contactID) {
+	if isMainGroup(contactID) || isMainUser {
 		role = "main"
 	}
 
@@ -59,7 +73,12 @@ func (p *Provisioner) EnsureWorkspace(contactID string) (workspaceID string, err
 }
 
 func (p *Provisioner) createWorkspace(workspaceID string) error {
-	workspacePath := filepath.Join(p.workspaceBase, workspaceID)
+	workspacePath := p.workspaceBase
+
+	if workspaceID != "" {
+		workspacePath = filepath.Join(p.workspaceBase, workspaceID)
+	}
+
 	if err := os.MkdirAll(workspacePath, 0755); err != nil {
 		return err
 	}

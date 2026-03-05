@@ -6,7 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -44,6 +46,16 @@ func DaemonCmd() *cobra.Command {
 		RunE:   daemonRun,
 		Hidden: true,
 	})
+
+	logsCmd := &cobra.Command{
+		Use:   "logs",
+		Short: "View daemon logs",
+		RunE:  daemonLogs,
+	}
+	logsCmd.Flags().StringP("date", "d", time.Now().Format("2006-01-02"), "Date for log file (YYYY-MM-DD)")
+	logsCmd.Flags().IntP("lines", "n", 100, "Number of lines to show")
+	logsCmd.Flags().BoolP("tail", "f", false, "Follow log output")
+	cmd.AddCommand(logsCmd)
 
 	return cmd
 }
@@ -160,4 +172,99 @@ func isProcessRunning(pidStr string) bool {
 
 func daemonRun(cmd *cobra.Command, args []string) error {
 	return daemon.Run()
+}
+
+func daemonLogs(cmd *cobra.Command, args []string) error {
+	workspaceID := "main"
+	if len(args) > 0 {
+		workspaceID = args[0]
+	}
+
+	dateStr, _ := cmd.Flags().GetString("date")
+	lines, _ := cmd.Flags().GetInt("lines")
+	tail, _ := cmd.Flags().GetBool("tail")
+
+	logFile := filepath.Join(textclawDir, "logs", workspaceID, dateStr+".log")
+
+	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+		return fmt.Errorf("log file not found: %s", logFile)
+	}
+
+	if tail {
+		return tailLog(logFile, lines)
+	}
+
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		return fmt.Errorf("failed to read log file: %w", err)
+	}
+
+	linesArr := splitLines(string(content))
+	start := 0
+	if len(linesArr) > lines {
+		start = len(linesArr) - lines
+	}
+
+	for i := start; i < len(linesArr); i++ {
+		fmt.Println(linesArr[i])
+	}
+
+	return nil
+}
+
+func splitLines(s string) []string {
+	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+}
+
+func tailLog(logFile string, initialLines int) error {
+	file, err := os.Open(logFile)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+	lastSize := fileInfo.Size()
+
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		return fmt.Errorf("failed to read log file: %w", err)
+	}
+
+	linesArr := splitLines(string(content))
+	start := 0
+	if len(linesArr) > initialLines {
+		start = len(linesArr) - initialLines
+	}
+
+	for i := start; i < len(linesArr); i++ {
+		fmt.Println(linesArr[i])
+	}
+
+	for {
+		time.Sleep(1 * time.Second)
+
+		fileInfo, err := os.Stat(logFile)
+		if err != nil {
+			continue
+		}
+
+		newSize := fileInfo.Size()
+		if newSize > lastSize {
+			content, err := os.ReadFile(logFile)
+			if err != nil {
+				continue
+			}
+
+			linesArr := splitLines(string(content))
+			if len(linesArr) > 0 {
+				fmt.Println(linesArr[len(linesArr)-1])
+			}
+
+			lastSize = newSize
+		}
+	}
 }

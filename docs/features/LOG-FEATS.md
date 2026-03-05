@@ -1,4 +1,7 @@
+2026-03-04-17-02 | Added daemon logging feature - writes all daemon events and workspace interactions to ~/.textclaw/logs/{workspace_id}/{YYYY-MM-DD}.log with textclaw daemon logs CLI command for retrieval and live tail
+2026-03-04-16-22 | Added main user/group feature - designates a Telegram user as main/admin with full access to all workspaces, uses root ~/.textclaw directory instead of workspace subdirectory, and can access all workspace containers
 2026-03-04-14-07 | Added slash command system with /new, /help, /status commands and SQLite command registry
+2026-03-04-14-07 | Updated README with OpenCode authentication documentation for setting up AI provider credentials
 2026-03-04-10-49 | Added pre-start containers feature to daemon startup for faster message handling
 2026-03-03-07-54 | Added Phase 1 Foundation feature with project setup, SQLite database layer, and TOML configuration
 2026-03-03-07-54 | Added Phase 2 CLI Commands feature with config, daemon, and notify subcommands

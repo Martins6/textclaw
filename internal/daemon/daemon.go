@@ -13,6 +13,7 @@ import (
 	"github.com/Martins6/textclaw/internal/daemon/commands"
 	"github.com/Martins6/textclaw/internal/daemon/heartbeat"
 	"github.com/Martins6/textclaw/internal/daemon/listener"
+	"github.com/Martins6/textclaw/internal/daemon/logs"
 	"github.com/Martins6/textclaw/internal/daemon/provisioner"
 	"github.com/Martins6/textclaw/internal/daemon/router"
 	"github.com/Martins6/textclaw/internal/daemon/runner"
@@ -29,30 +30,34 @@ const (
 	gray   = "\033[90m"
 )
 
-func channelLog(prefix, color, msg string) {
+func channelLog(workspaceID, prefix, color, msg string) {
 	timestamp := time.Now().Format("15:04:05")
-	fmt.Fprintf(os.Stderr, "%s[%s]%s %s%s%s %s\n", gray, timestamp, reset, color, prefix, reset, msg)
+	consoleMsg := fmt.Sprintf("%s[%s]%s %s%s%s %s\n", gray, timestamp, reset, color, prefix, reset, msg)
+	fmt.Fprint(os.Stderr, consoleMsg)
+	logs.Log(workspaceID, prefix, msg)
 }
 
-func channelIn(chatID, sender, content string) {
+func channelIn(workspaceID, chatID, sender, content string) {
 	preview := content
 	if len(preview) > 80 {
 		preview = preview[:77] + "..."
 	}
-	channelLog("INPUT", green, fmt.Sprintf("[%s] %s: %s", chatID, sender, preview))
+	channelLog(workspaceID, "INPUT", green, fmt.Sprintf("[%s] %s: %s", chatID, sender, preview))
 }
 
-func channelOut(chatID, content string) {
+func channelOut(workspaceID, chatID, content string) {
 	preview := content
 	if len(preview) > 80 {
 		preview = preview[:77] + "..."
 	}
-	channelLog("OUTPUT", cyan, fmt.Sprintf("[%s] %s", chatID, preview))
+	channelLog(workspaceID, "OUTPUT", cyan, fmt.Sprintf("[%s] %s", chatID, preview))
 }
 
-func daemonLog(msg string) {
+func daemonLog(workspaceID, msg string) {
 	timestamp := time.Now().Format("15:04:05")
-	fmt.Fprintf(os.Stderr, "%s[%s]%s %sDAEMON%s %s\n", gray, timestamp, reset, yellow, reset, msg)
+	consoleMsg := fmt.Sprintf("%s[%s]%s %sDAEMON%s %s\n", gray, timestamp, reset, yellow, reset, msg)
+	fmt.Fprint(os.Stderr, consoleMsg)
+	logs.Log(workspaceID, "DAEMON", msg)
 }
 
 type Daemon struct {
@@ -98,8 +103,25 @@ func New(cfgPath string) (*Daemon, error) {
 	openCodeConfigDir := filepath.Join(homeDir, ".textclaw", "opencode-config")
 	openCodeAuthDir := filepath.Join(homeDir, ".textclaw", "opencode-auth")
 	opencodeDotPath := filepath.Join(homeDir, ".textclaw", ".opencode")
-	p := provisioner.New(db, workspaceBase, "", opencodeDotPath)
-	runr, err := runner.New(workspaceBase, openCodeConfigDir, openCodeAuthDir, db, runner.WithImage(cfg.Container.Image))
+
+	mainUserID := ""
+	if cfg.Main.Enabled {
+		mainUserID = cfg.Main.TelegramID
+
+		filesDir := filepath.Join(workspaceBase, "files")
+		if err := os.MkdirAll(filesDir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create main user files directory: %w", err)
+		}
+
+		stateDir := filepath.Join(workspaceBase, "opencode-state")
+		if err := os.MkdirAll(stateDir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create main user state directory: %w", err)
+		}
+	}
+
+	p := provisioner.New(db, workspaceBase, "", opencodeDotPath, mainUserID)
+
+	runr, err := runner.New(workspaceBase, openCodeConfigDir, openCodeAuthDir, db, mainUserID, runner.WithImage(cfg.Container.Image))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create runner: %w", err)
 	}
@@ -134,11 +156,11 @@ func (d *Daemon) Start(ctx context.Context) error {
 	}
 	d.adapter = adapter
 
-	daemonLog(fmt.Sprintf("Starting TextClaw daemon with %s adapter", adapter.Name()))
+	daemonLog("main", fmt.Sprintf("Starting TextClaw daemon with %s adapter", adapter.Name()))
 
 	cmdRegistry := commands.NewRegistry(d.db)
 	if err := cmdRegistry.SeedDefaultCommands(); err != nil {
-		daemonLog(fmt.Sprintf("Failed to seed default commands: %v", err))
+		daemonLog("main", fmt.Sprintf("Failed to seed default commands: %v", err))
 	}
 	d.commandHandler = commands.NewHandler(cmdRegistry, d.runner, adapter)
 
@@ -147,17 +169,17 @@ func (d *Daemon) Start(ctx context.Context) error {
 	}
 
 	if err := d.loadHeartbeatWorkspaces(); err != nil {
-		daemonLog(fmt.Sprintf("Failed to load heartbeat workspaces: %v", err))
+		daemonLog("main", fmt.Sprintf("Failed to load heartbeat workspaces: %v", err))
 	}
 
-	daemonLog("Starting all workspace containers...")
+	daemonLog("main", "Starting all workspace containers...")
 	if err := d.runner.StartAllContainers(ctx); err != nil {
-		daemonLog(fmt.Sprintf("Failed to start workspace containers: %v", err))
+		daemonLog("main", fmt.Sprintf("Failed to start workspace containers: %v", err))
 	}
 
 	go func() {
 		if err := adapter.Listen(ctx, d.handleMessage); err != nil && err != context.Canceled {
-			daemonLog(fmt.Sprintf("Listener error: %v", err))
+			daemonLog("main", fmt.Sprintf("Listener error: %v", err))
 		}
 	}()
 
@@ -173,12 +195,12 @@ func (d *Daemon) loadHeartbeatWorkspaces() error {
 	for _, ws := range workspaces {
 		wsCfg, err := config.LoadWorkspaceConfig(filepath.Join(d.workspaceBase, ws.ID))
 		if err != nil {
-			daemonLog(fmt.Sprintf("Failed to load config for workspace %s: %v", ws.ID, err))
+			daemonLog("main", fmt.Sprintf("Failed to load config for workspace %s: %v", ws.ID, err))
 			continue
 		}
 		if wsCfg != nil && wsCfg.Heartbeat != nil && wsCfg.Heartbeat.Enabled {
 			if err := d.heartbeatScheduler.AddWorkspace(ws.ID, wsCfg.Heartbeat.Schedule); err != nil {
-				daemonLog(fmt.Sprintf("Failed to add heartbeat for workspace %s: %v", ws.ID, err))
+				daemonLog("main", fmt.Sprintf("Failed to add heartbeat for workspace %s: %v", ws.ID, err))
 			}
 		}
 	}
@@ -186,25 +208,25 @@ func (d *Daemon) loadHeartbeatWorkspaces() error {
 }
 
 func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error {
-	channelIn(msg.ChatID, msg.Sender, msg.Content)
-
 	workspaceID, err := d.router.Lookup(msg.Sender)
 	if err != nil {
 		if err == router.ErrContactNotFound {
-			daemonLog(fmt.Sprintf("New contact %s, provisioning workspace", msg.Sender))
+			daemonLog("main", fmt.Sprintf("New contact %s, provisioning workspace", msg.Sender))
 			workspaceID, err = d.provisioner.EnsureWorkspace(msg.Sender)
 			if err != nil {
-				daemonLog(fmt.Sprintf("Failed to provision workspace: %v", err))
+				daemonLog("main", fmt.Sprintf("Failed to provision workspace: %v", err))
 				return fmt.Errorf("failed to provision workspace: %w", err)
 			}
-			daemonLog(fmt.Sprintf("Created workspace %s for contact %s", workspaceID, msg.Sender))
+			daemonLog("main", fmt.Sprintf("Created workspace %s for contact %s", workspaceID, msg.Sender))
 		} else {
-			daemonLog(fmt.Sprintf("Failed to lookup contact: %v", err))
+			daemonLog("main", fmt.Sprintf("Failed to lookup contact: %v", err))
 			return fmt.Errorf("failed to lookup contact: %w", err)
 		}
 	}
 
-	daemonLog(fmt.Sprintf("Routing message to workspace %s", workspaceID))
+	channelIn(workspaceID, msg.ChatID, msg.Sender, msg.Content)
+
+	daemonLog(workspaceID, fmt.Sprintf("Routing message to workspace %s", workspaceID))
 
 	if err := database.SaveMessage(d.db, &database.Message{
 		WorkspaceID: workspaceID,
@@ -213,24 +235,24 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 		ContentType: msg.ContentType,
 		Direction:   "incoming",
 	}); err != nil {
-		daemonLog(fmt.Sprintf("Failed to save message: %v", err))
+		daemonLog(workspaceID, fmt.Sprintf("Failed to save message: %v", err))
 	}
 
 	if d.commandHandler != nil {
 		handled, err := d.commandHandler.HandleCommand(ctx, msg, workspaceID)
 		if err != nil {
-			daemonLog(fmt.Sprintf("Command handler error: %v", err))
+			daemonLog(workspaceID, fmt.Sprintf("Command handler error: %v", err))
 		}
 		if handled {
 			return nil
 		}
 	}
 
-	daemonLog(fmt.Sprintf("Executing prompt in workspace %s", workspaceID))
+	daemonLog(workspaceID, fmt.Sprintf("Executing prompt in workspace %s", workspaceID))
 	result, err := d.runner.Execute(ctx, workspaceID, msg.Content)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error: %v", err)
-		daemonLog(fmt.Sprintf("Failed to execute: %v", err))
+		daemonLog(workspaceID, fmt.Sprintf("Failed to execute: %v", err))
 		return d.adapter.Send(msg.ChatID, errMsg)
 	}
 
@@ -239,7 +261,7 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 		response = "Session expired. Started a new session - previous context cleared.\n\n" + response
 	}
 
-	channelOut(msg.ChatID, response)
+	channelOut(workspaceID, msg.ChatID, response)
 
 	if err := database.SaveMessage(d.db, &database.Message{
 		WorkspaceID: workspaceID,
@@ -248,7 +270,7 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 		ContentType: "text",
 		Direction:   "outgoing",
 	}); err != nil {
-		daemonLog(fmt.Sprintf("Failed to save response: %v", err))
+		daemonLog(workspaceID, fmt.Sprintf("Failed to save response: %v", err))
 	}
 
 	return d.adapter.Send(msg.ChatID, response)
@@ -257,7 +279,7 @@ func (d *Daemon) handleMessage(ctx context.Context, msg listener.Message) error 
 func (d *Daemon) Stop() error {
 	if d.heartbeatScheduler != nil {
 		if err := d.heartbeatScheduler.Stop(); err != nil {
-			daemonLog(fmt.Sprintf("Failed to stop heartbeat scheduler: %v", err))
+			daemonLog("main", fmt.Sprintf("Failed to stop heartbeat scheduler: %v", err))
 		}
 	}
 	if d.runner != nil {
@@ -291,7 +313,7 @@ func Run() error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigChan
-	daemonLog("Shutting down...")
+	daemonLog("main", "Shutting down...")
 
 	cancel()
 

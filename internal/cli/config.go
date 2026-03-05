@@ -74,6 +74,10 @@ func configGet(key string) error {
 		for _, u := range cfg.Telegram.AllowedUsers {
 			fmt.Println(u)
 		}
+	case "main.enabled":
+		fmt.Println(cfg.Main.Enabled)
+	case "main.telegram_id":
+		fmt.Println(cfg.Main.TelegramID)
 	default:
 		return fmt.Errorf("unknown key: %s", key)
 	}
@@ -100,6 +104,10 @@ func configSet(key, value string) error {
 		cfg.Telegram.Token = value
 	case "telegram.allowed_users":
 		cfg.Telegram.AllowedUsers = parseStringArray(value)
+	case "main.enabled":
+		cfg.Main.Enabled = value == "true"
+	case "main.telegram_id":
+		cfg.Main.TelegramID = value
 	default:
 		return fmt.Errorf("unknown key: %s", key)
 	}
